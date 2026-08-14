@@ -30,7 +30,9 @@ import { getTelegramUser } from './utils/telegram';
 import { supabase } from './lib/supabase';
 import { Smartphone } from 'lucide-react';
 
-// Определяем пользователя Telegram один раз при загрузке приложения
+// Определяем пользователя Telegram один раз при загрузке приложения.
+// Внутри Telegram (Mini App) здесь будут реальные id/username/фото.
+// Вне Telegram (обычный браузер, для разработки) — null, тогда используются общие demo-ключи.
 const tgUser = getTelegramUser();
 const userKey = tgUser ? `cryptobot_user_stats_${tgUser.id}` : 'cryptobot_user_stats';
 const reqKey = tgUser ? `cryptobot_requisites_${tgUser.id}` : 'cryptobot_requisites';
@@ -107,7 +109,9 @@ export default function App() {
     localStorage.setItem(txKey, JSON.stringify(transactions));
   }, [transactions]);
 
-  // Синхронизация профиля с Supabase при первом открытии
+  // Синхронизация профиля с Supabase при первом открытии.
+  // Если пользователь уже есть в базе — подтягиваем его реальный прогресс (xp, ранг, обороты).
+  // Если нет — создаём запись.
   useEffect(() => {
     if (!supabase || !tgUser) return;
 
@@ -279,7 +283,7 @@ export default function App() {
     const txWithPdf: Transaction = { ...tx, pdfReceipt: pdfData };
     setTransactions((prev) => [txWithPdf, ...prev]);
 
-    // Заявка уходит в Supabase → её увидит оператор через бота (/orders, /admin)
+    // Заявка уходит в Supabase → оператор увидит её в самом боте через /orders или /admin
     if (supabase && tgUser) {
       supabase.from('orders').insert({
         order_number: `ORD-${tx.id.substring(0, 8)}`,
@@ -311,13 +315,16 @@ export default function App() {
       };
 
       if (supabase && tgUser) {
-        supabase.from('users').update({
-          xp: updated.xp,
-          tier: updated.tier,
-          completed_deals: updated.completedDeals,
-          total_volume_rub: updated.totalVolumeRub,
-          total_volume_usd: updated.totalVolumeUsd,
-        }).eq('telegram_id', Number(tgUser.id));
+        supabase
+          .from('users')
+          .update({
+            xp: updated.xp,
+            tier: updated.tier,
+            completed_deals: updated.completedDeals,
+            total_volume_rub: updated.totalVolumeRub,
+            total_volume_usd: updated.totalVolumeUsd,
+          })
+          .eq('telegram_id', Number(tgUser.id));
       }
 
       return updated;
