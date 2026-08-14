@@ -8,7 +8,6 @@ import { ProfileView } from './components/ProfileView';
 import { AddRequisiteModal } from './components/AddRequisiteModal';
 import { TransactionReceiptModal } from './components/TransactionReceiptModal';
 import { PdfReceiptViewerModal } from './components/PdfReceiptViewerModal';
-import { TelegramBotChat } from './components/TelegramBotChat';
 import {
   UserStats,
   PaymentRequisite,
@@ -16,8 +15,6 @@ import {
   QuestTask,
   RatingTier,
   TierInfo,
-  AdminUser,
-  AdminOrder,
   PdfReceiptData,
 } from './types';
 import {
@@ -25,23 +22,43 @@ import {
   INITIAL_REQUISITES,
   INITIAL_TASKS,
   INITIAL_TRANSACTIONS,
-  INITIAL_ADMINS,
-  INITIAL_ADMIN_ORDERS,
   TIERS,
 } from './data/mockData';
 import { createPdfReceiptData } from './utils/pdfGenerator';
 import { sound } from './utils/sound';
-import { Bot, Smartphone, Sparkles } from 'lucide-react';
+import { getTelegramUser } from './utils/telegram';
+import { supabase } from './lib/supabase';
+import { Smartphone } from 'lucide-react';
+
+// Определяем пользователя Telegram один раз при загрузке приложения
+const tgUser = getTelegramUser();
+const userKey = tgUser ? `cryptobot_user_stats_${tgUser.id}` : 'cryptobot_user_stats';
+const reqKey = tgUser ? `cryptobot_requisites_${tgUser.id}` : 'cryptobot_requisites';
+const taskKey = tgUser ? `cryptobot_tasks_${tgUser.id}` : 'cryptobot_tasks';
+const txKey = tgUser ? `cryptobot_transactions_${tgUser.id}` : 'cryptobot_transactions';
+
+function buildInitialUser(): UserStats {
+  const saved = localStorage.getItem(userKey);
+  const base: UserStats = saved ? JSON.parse(saved) : INITIAL_USER_STATS;
+
+  if (tgUser) {
+    return {
+      ...base,
+      telegramId: tgUser.id,
+      username: tgUser.username,
+      fullName: tgUser.fullName,
+      avatarUrl: tgUser.avatarUrl,
+      isPremium: tgUser.isPremium,
+    };
+  }
+  return base;
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('sell');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
-  // Dynamic & Persistent local states
-  const [user, setUser] = useState<UserStats>(() => {
-    const saved = localStorage.getItem('cryptobot_user_stats');
-    return saved ? JSON.parse(saved) : INITIAL_USER_STATS;
-  });
+  const [user, setUser] = useState<UserStats>(buildInitialUser);
 
   const [tiers, setTiers] = useState<Record<string, TierInfo>>(() => {
     const saved = localStorage.getItem('cryptobot_tiers');
@@ -49,40 +66,29 @@ export default function App() {
   });
 
   const [requisites, setRequisites] = useState<PaymentRequisite[]>(() => {
-    const saved = localStorage.getItem('cryptobot_requisites');
+    const saved = localStorage.getItem(reqKey);
     return saved ? JSON.parse(saved) : INITIAL_REQUISITES;
   });
 
   const [tasks, setTasks] = useState<QuestTask[]>(() => {
-    const saved = localStorage.getItem('cryptobot_tasks');
+    const saved = localStorage.getItem(taskKey);
     return saved ? JSON.parse(saved) : INITIAL_TASKS;
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('cryptobot_transactions');
+    const saved = localStorage.getItem(txKey);
     return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
   });
 
-  const [admins, setAdmins] = useState<AdminUser[]>(() => {
-    const saved = localStorage.getItem('cryptobot_admins');
-    return saved ? JSON.parse(saved) : INITIAL_ADMINS;
-  });
-
-  const [adminOrders, setAdminOrders] = useState<AdminOrder[]>(() => {
-    const saved = localStorage.getItem('cryptobot_admin_orders');
-    return saved ? JSON.parse(saved) : INITIAL_ADMIN_ORDERS;
-  });
-
-  // Modals & Panels state
+  // Modals state
   const [isAddRequisiteOpen, setIsAddRequisiteOpen] = useState<boolean>(false);
   const [activeReceiptTx, setActiveReceiptTx] = useState<Transaction | null>(null);
   const [selectedPdfReceipt, setSelectedPdfReceipt] = useState<PdfReceiptData | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
-  const [isTelegramBotOpen, setIsTelegramBotOpen] = useState<boolean>(false);
 
-  // Save to localStorage
+  // Save to localStorage (персонально по telegramId)
   useEffect(() => {
-    localStorage.setItem('cryptobot_user_stats', JSON.stringify(user));
+    localStorage.setItem(userKey, JSON.stringify(user));
   }, [user]);
 
   useEffect(() => {
@@ -90,26 +96,56 @@ export default function App() {
   }, [tiers]);
 
   useEffect(() => {
-    localStorage.setItem('cryptobot_requisites', JSON.stringify(requisites));
+    localStorage.setItem(reqKey, JSON.stringify(requisites));
   }, [requisites]);
 
   useEffect(() => {
-    localStorage.setItem('cryptobot_tasks', JSON.stringify(tasks));
+    localStorage.setItem(taskKey, JSON.stringify(tasks));
   }, [tasks]);
 
   useEffect(() => {
-    localStorage.setItem('cryptobot_transactions', JSON.stringify(transactions));
+    localStorage.setItem(txKey, JSON.stringify(transactions));
   }, [transactions]);
 
+  // Синхронизация профиля с Supabase при первом открытии
   useEffect(() => {
-    localStorage.setItem('cryptobot_admins', JSON.stringify(admins));
-  }, [admins]);
+    if (!supabase || !tgUser) return;
 
-  useEffect(() => {
-    localStorage.setItem('cryptobot_admin_orders', JSON.stringify(adminOrders));
-  }, [adminOrders]);
+    (async () => {
+      const { data: existing } = await supabase
+        .from('users')
+        .select('*')
+        .eq('telegram_id', Number(tgUser.id))
+        .maybeSingle();
 
-  // Determine current tier from user XP
+      if (existing) {
+        setUser((prev) => ({
+          ...prev,
+          xp: existing.xp ?? prev.xp,
+          tier: (existing.tier as RatingTier) ?? prev.tier,
+          completedDeals: existing.completed_deals ?? prev.completedDeals,
+          totalVolumeRub: Number(existing.total_volume_rub ?? prev.totalVolumeRub),
+          totalVolumeUsd: Number(existing.total_volume_usd ?? prev.totalVolumeUsd),
+          username: tgUser.username,
+          fullName: tgUser.fullName,
+          avatarUrl: tgUser.avatarUrl,
+        }));
+      } else {
+        await supabase.from('users').upsert(
+          {
+            telegram_id: Number(tgUser.id),
+            username: tgUser.username,
+            full_name: tgUser.fullName,
+            xp: user.xp,
+            tier: user.tier,
+          },
+          { onConflict: 'telegram_id' }
+        );
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const determineTier = (xp: number): RatingTier => {
     if (xp >= (tiers.Diamond?.minXp || 5000)) return 'Diamond';
     if (xp >= (tiers.Platinum?.minXp || 2000)) return 'Platinum';
@@ -120,14 +156,12 @@ export default function App() {
 
   const currentTierInfo = tiers[user.tier] || tiers.Gold || TIERS.Gold;
 
-  // Sound toggle
   const handleToggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
     sound.setEnabled(next);
   };
 
-  // Requisite actions
   const handleSaveRequisite = (reqData: Omit<PaymentRequisite, 'id' | 'createdAt'>) => {
     const newReq: PaymentRequisite = {
       ...reqData,
@@ -144,6 +178,18 @@ export default function App() {
     }
     updated.unshift(newReq);
     setRequisites(updated);
+
+    if (supabase && tgUser) {
+      supabase.from('requisites').insert({
+        user_telegram_id: Number(tgUser.id),
+        bank_name: newReq.bankName,
+        account_number: newReq.accountNumber,
+        recipient_name: newReq.recipientName,
+        type: newReq.type,
+        is_default: newReq.isDefault,
+        color: newReq.color,
+      });
+    }
   };
 
   const handleDeleteRequisite = (id: string) => {
@@ -162,10 +208,8 @@ export default function App() {
     setRequisites(updated);
   };
 
-  // Daily Streak Claim
   const handleClaimDailyStreak = () => {
     if (user.streakClaimedToday) return;
-
     setUser((prev) => {
       const newXp = prev.xp + 30;
       const nextTier = determineTier(newXp);
@@ -180,7 +224,6 @@ export default function App() {
     });
   };
 
-  // Task Claim Action
   const handleClaimTask = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || !task.completed || task.claimed) return;
@@ -198,115 +241,30 @@ export default function App() {
       };
     });
 
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, claimed: true } : t))
-    );
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, claimed: true } : t)));
   };
 
-  // Verify Telegram Task (e.g. channel subscription with bot verification)
-  const handleVerifyTelegramTask = async (taskId: string, channelName?: string): Promise<boolean> => {
+  const handleVerifyTelegramTask = async (taskId: string): Promise<boolean> => {
     return new Promise((resolve) => {
       setTimeout(() => {
         setTasks((prev) =>
-          prev.map((t) => {
-            if (t.id === taskId) {
-              return {
-                ...t,
-                progress: 1,
-                completed: true,
-                badge: 'Подтверждено ботом',
-              };
-            }
-            return t;
-          })
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, progress: 1, completed: true, badge: 'Подтверждено ботом' }
+              : t
+          )
         );
         resolve(true);
       }, 900);
     });
   };
 
-  // Admin Task Management (from /admin in bot)
-  const handleAddTask = (newTaskData: Omit<QuestTask, 'id' | 'progress' | 'completed' | 'claimed'>) => {
-    const newTask: QuestTask = {
-      ...newTaskData,
-      id: `task_custom_${Date.now()}`,
-      progress: 0,
-      completed: false,
-      claimed: false,
-    };
-    setTasks((prev) => [newTask, ...prev]);
-  };
-
-  const handleDeleteTask = (taskId: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
-  };
-
-  // Admin Tier/Rank Management (from /admin in bot)
-  const handleUpdateTier = (tierKey: RatingTier, updatedData: Partial<TierInfo>) => {
-    setTiers((prev) => ({
-      ...prev,
-      [tierKey]: {
-        ...prev[tierKey],
-        ...updatedData,
-      },
-    }));
-  };
-
-  // Open PDF Viewer
   const handleOpenPdfReceipt = (receipt: PdfReceiptData) => {
     setSelectedPdfReceipt(receipt);
     setIsPdfModalOpen(true);
   };
 
-  // Deep-linking from Telegram Bot "Посмотреть сделку" into MiniApp
-  const handleOpenTransactionReceiptFromBot = (orderIdOrTxId: string) => {
-    setIsTelegramBotOpen(false);
-
-    // Look for matching transaction in transactions list
-    const foundTx = transactions.find(
-      (t) =>
-        t.id === orderIdOrTxId ||
-        `ORD-${t.id.substring(0, 8)}` === orderIdOrTxId ||
-        t.chequeCode.includes(orderIdOrTxId)
-    );
-
-    if (foundTx) {
-      setActiveReceiptTx(foundTx);
-      return;
-    }
-
-    // Look in adminOrders
-    const foundOrder = adminOrders.find(
-      (o) => o.id === orderIdOrTxId || o.orderNumber === orderIdOrTxId
-    );
-
-    if (foundOrder) {
-      const generatedTx: Transaction = {
-        id: foundOrder.id.replace('ord_', 'tx_'),
-        date: foundOrder.paidAt || 'Только что',
-        cryptoSymbol: foundOrder.cryptoSymbol,
-        cryptoAmount: foundOrder.cryptoAmount,
-        fiatCurrency: 'RUB',
-        fiatAmount: foundOrder.fiatAmount,
-        rateUsed: foundOrder.rateUsed,
-        volumeBonusPercent: 0.3,
-        tierBonusPercent: currentTierInfo.rateBonus,
-        chequeCode: foundOrder.chequeCode,
-        status: 'completed',
-        requisite: foundOrder.requisite,
-        payoutTxId: foundOrder.pdfReceipt?.operationId || `SBP_TX_${Date.now()}`,
-        timeTakenSeconds: 28,
-        cashbackEarned: 0.5,
-        xpEarned: 50,
-        pdfReceipt: foundOrder.pdfReceipt,
-      };
-      setActiveReceiptTx(generatedTx);
-    }
-  };
-
-  // Handle transaction creation & payout workflow from MiniApp
   const handleTransactionSuccess = (tx: Transaction) => {
-    // Generate default PDF receipt for initial order record
     const pdfData = createPdfReceiptData(
       `ORD-${tx.id.substring(0, 8)}`,
       tx.fiatAmount,
@@ -315,151 +273,77 @@ export default function App() {
       tx.rateUsed,
       tx.requisite.bankName,
       tx.requisite.accountNumber,
-      tx.requisite.recipientName,
-      admins[0]?.username || 'admin_sbp'
+      tx.requisite.recipientName
     );
 
-    const txWithPdf: Transaction = {
-      ...tx,
-      pdfReceipt: pdfData,
-    };
-
+    const txWithPdf: Transaction = { ...tx, pdfReceipt: pdfData };
     setTransactions((prev) => [txWithPdf, ...prev]);
 
-    // Create an AdminOrder entry for the admin queue in the Telegram Bot
-    const newAdminOrder: AdminOrder = {
-      id: `ord_${Date.now()}`,
-      orderNumber: `ORD-${tx.id.substring(0, 8)}`,
-      createdAt: 'Только что',
-      userTelegramId: user.telegramId,
-      userUsername: user.username,
-      userFullName: user.fullName,
-      cryptoSymbol: tx.cryptoSymbol,
-      cryptoAmount: tx.cryptoAmount,
-      fiatAmount: tx.fiatAmount,
-      rateUsed: tx.rateUsed,
-      chequeCode: tx.chequeCode,
-      requisite: tx.requisite,
-      status: 'new',
-      pdfReceipt: pdfData,
-    };
-
-    setAdminOrders((prev) => [newAdminOrder, ...prev]);
+    // Заявка уходит в Supabase → её увидит оператор через бота (/orders, /admin)
+    if (supabase && tgUser) {
+      supabase.from('orders').insert({
+        order_number: `ORD-${tx.id.substring(0, 8)}`,
+        user_telegram_id: Number(tgUser.id),
+        user_username: tgUser.username,
+        user_full_name: tgUser.fullName,
+        crypto_symbol: tx.cryptoSymbol,
+        crypto_amount: tx.cryptoAmount,
+        fiat_amount: tx.fiatAmount,
+        rate_used: tx.rateUsed,
+        volume_bonus_percent: tx.volumeBonusPercent || 0,
+        tier_bonus_percent: tx.tierBonusPercent || 0,
+        cheque_code: tx.chequeCode,
+        status: 'new',
+        requisite: tx.requisite,
+      });
+    }
 
     setUser((prev) => {
       const newXp = prev.xp + (tx.xpEarned || 50);
       const nextTier = determineTier(newXp);
-      return {
+      const updated = {
         ...prev,
         xp: newXp,
         tier: nextTier,
         completedDeals: prev.completedDeals + 1,
         totalVolumeRub: prev.totalVolumeRub + tx.fiatAmount,
-        totalVolumeUsd:
-          prev.totalVolumeUsd +
-          tx.cryptoAmount * (tx.cryptoSymbol === 'USDT' ? 1 : 5.6),
+        totalVolumeUsd: prev.totalVolumeUsd + tx.cryptoAmount * (tx.cryptoSymbol === 'USDT' ? 1 : 5.6),
       };
+
+      if (supabase && tgUser) {
+        supabase.from('users').update({
+          xp: updated.xp,
+          tier: updated.tier,
+          completed_deals: updated.completedDeals,
+          total_volume_rub: updated.totalVolumeRub,
+          total_volume_usd: updated.totalVolumeUsd,
+        }).eq('telegram_id', Number(tgUser.id));
+      }
+
+      return updated;
     });
   };
 
-  // Admin actions from Telegram Bot
-  const handleApproveAdminOrder = (orderId: string, pdfReceipt: PdfReceiptData) => {
-    setAdminOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? {
-              ...o,
-              status: 'paid',
-              pdfReceipt,
-              paidAt: new Date().toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-              assignedAdmin: `@${admins[0]?.username || 'admin_sbp'}`,
-            }
-          : o
-      )
-    );
-
-    // Update matching transaction so seller can view PDF receipt in profile and deals
-    setTransactions((prev) =>
-      prev.map((t) => {
-        if (`ORD-${t.id.substring(0, 8)}` === pdfReceipt.orderNumber || t.id.includes(orderId)) {
-          return {
-            ...t,
-            pdfReceipt,
-            status: 'completed',
-          };
-        }
-        return t;
-      })
-    );
-  };
-
-  const handleRejectAdminOrder = (orderId: string) => {
-    setAdminOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: 'rejected' } : o))
-    );
-  };
-
-  const handleAddAdmin = (telegramId: string, username: string, fullName: string) => {
-    const newAdm: AdminUser = {
-      id: `adm_${Date.now()}`,
-      telegramId,
-      username,
-      fullName,
-      role: 'admin',
-      addedAt: new Date().toLocaleDateString('ru-RU'),
-      addedBy: user.username,
-    };
-    setAdmins((prev) => [...prev, newAdm]);
-  };
-
-  const handleRemoveAdmin = (adminId: string) => {
-    setAdmins((prev) => prev.filter((a) => a.id !== adminId || a.role === 'owner'));
-  };
-
   const unclaimedTasksCount = tasks.filter((t) => t.completed && !t.claimed).length;
-  const pendingOrdersCount = adminOrders.filter((o) => o.status === 'new').length;
 
   return (
     <div className="min-h-screen bg-[#070708] text-white flex flex-col items-center justify-start font-sans antialiased selection:bg-[#A3FF12] selection:text-black">
-      {/* Top Environment Bar */}
       <div className="w-full max-w-md px-3 pt-2 pb-1 flex items-center justify-between text-xs">
         <div className="flex items-center gap-1.5 text-zinc-400">
           <Smartphone className="w-3.5 h-3.5 text-[#A3FF12]" />
           <span className="text-[11px] font-semibold text-zinc-200">Telegram Mini App</span>
         </div>
-
-        <button
-          id="btn-open-tg-bot-floating"
-          onClick={() => {
-            sound.playTap();
-            setIsTelegramBotOpen(true);
-          }}
-          className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 hover:text-[#A3FF12] text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
-        >
-          <Bot className="w-3.5 h-3.5 text-[#A3FF12]" />
-          <span>Чат бота (@CryptoChequePayBot)</span>
-          {pendingOrdersCount > 0 && (
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Есть заявки на выплату"></span>
-          )}
-        </button>
       </div>
 
-      {/* Mobile Telegram MiniApp Container */}
       <div className="w-full max-w-md min-h-screen bg-[#0F0F0F] flex flex-col relative border-x border-zinc-800 shadow-2xl">
-        {/* Telegram Header */}
         <TelegramHeader
           user={user}
           tier={currentTierInfo}
           soundEnabled={soundEnabled}
           onToggleSound={handleToggleSound}
           onOpenProfile={() => setActiveTab('profile')}
-          onOpenTelegramBot={() => setIsTelegramBotOpen(true)}
         />
 
-        {/* Main View Area */}
         <main className="flex-1 px-4 pt-3 pb-24 overflow-y-auto">
           {activeTab === 'sell' && (
             <SellChequeView
@@ -469,18 +353,12 @@ export default function App() {
               onOpenAddRequisite={() => setIsAddRequisiteOpen(true)}
               onTransactionSuccess={handleTransactionSuccess}
               onOpenReceipt={(tx) => setActiveReceiptTx(tx)}
-              onOpenTelegramBot={() => setIsTelegramBotOpen(true)}
               onOpenPdfReceipt={handleOpenPdfReceipt}
             />
           )}
 
           {activeTab === 'market' && (
-            <MarketView
-              tier={currentTierInfo}
-              onQuickSell={() => {
-                setActiveTab('sell');
-              }}
-            />
+            <MarketView tier={currentTierInfo} onQuickSell={() => setActiveTab('sell')} />
           )}
 
           {activeTab === 'tasks' && (
@@ -507,33 +385,28 @@ export default function App() {
               onOpenReceipt={(tx) => setActiveReceiptTx(tx)}
               onNavigateToTasks={() => setActiveTab('tasks')}
               onOpenPdfReceipt={handleOpenPdfReceipt}
-              onOpenTelegramBot={() => setIsTelegramBotOpen(true)}
             />
           )}
         </main>
 
-        {/* Bottom Navigation */}
         <BottomNav
           activeTab={activeTab}
           onSelectTab={(tab) => setActiveTab(tab)}
           unclaimedTasksCount={unclaimedTasksCount}
         />
 
-        {/* Add Requisite Modal */}
         <AddRequisiteModal
           isOpen={isAddRequisiteOpen}
           onClose={() => setIsAddRequisiteOpen(false)}
           onSave={handleSaveRequisite}
         />
 
-        {/* Transaction Receipt Modal */}
         <TransactionReceiptModal
           transaction={activeReceiptTx}
           onClose={() => setActiveReceiptTx(null)}
           onOpenPdfReceipt={handleOpenPdfReceipt}
         />
 
-        {/* PDF Receipt Viewer Modal */}
         <PdfReceiptViewerModal
           receipt={selectedPdfReceipt}
           isOpen={isPdfModalOpen}
@@ -541,29 +414,6 @@ export default function App() {
             setIsPdfModalOpen(false);
             setSelectedPdfReceipt(null);
           }}
-        />
-
-        {/* Telegram Bot Chat (/start and /admin outside MiniApp) */}
-        <TelegramBotChat
-          isOpen={isTelegramBotOpen}
-          onClose={() => setIsTelegramBotOpen(false)}
-          onOpenMiniApp={() => {
-            setIsTelegramBotOpen(false);
-            setActiveTab('sell');
-          }}
-          adminOrders={adminOrders}
-          admins={admins}
-          tasks={tasks}
-          tiers={tiers}
-          onApproveOrder={handleApproveAdminOrder}
-          onRejectOrder={handleRejectAdminOrder}
-          onAddAdmin={handleAddAdmin}
-          onRemoveAdmin={handleRemoveAdmin}
-          onAddTask={handleAddTask}
-          onDeleteTask={handleDeleteTask}
-          onUpdateTier={handleUpdateTier}
-          onViewPdf={handleOpenPdfReceipt}
-          onOpenTransactionReceipt={handleOpenTransactionReceiptFromBot}
         />
       </div>
     </div>
