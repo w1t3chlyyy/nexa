@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client with service role key for full database access
 const getSupabase = () => {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -9,14 +8,16 @@ const getSupabase = () => {
   return createClient(url, key);
 };
 
-// Telegram API Helper
 async function sendTelegramMessage(chatId: number | string, text: string, replyMarkup?: any) {
   const token = process.env.BOT_TOKEN;
-  if (!token) return;
+  if (!token) {
+    console.error('BOT_TOKEN not set!');
+    return;
+  }
 
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -26,6 +27,8 @@ async function sendTelegramMessage(chatId: number | string, text: string, replyM
         reply_markup: replyMarkup,
       }),
     });
+    const data = await res.json();
+    console.log('sendMessage response:', JSON.stringify(data));
   } catch (err) {
     console.error('Error sending Telegram message:', err);
   }
@@ -38,10 +41,7 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
     await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        callback_query_id: callbackQueryId,
-        text,
-      }),
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
     });
   } catch (err) {
     console.error('Error answering callback:', err);
@@ -49,40 +49,60 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log('=== WEBHOOK CALLED ===');
+  console.log('Method:', req.method);
+  console.log('Headers:', JSON.stringify(req.headers));
+  console.log('Body:', JSON.stringify(req.body));
+
   if (req.method !== 'POST') {
+    console.log('Not POST, returning ok');
     return res.status(200).json({ status: 'ok', message: 'Telegram Webhook Endpoint' });
   }
 
-  // Verify secret token from Telegram header if set
+  // DEBUG: покажем secret token если есть
   const secretToken = req.headers['x-telegram-bot-api-secret-token'];
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  console.log('Secret from header:', secretToken);
+  console.log('Expected secret:', expectedSecret ? '***set***' : '***not set***');
+
+  // Если secret задан И header не совпадает — блокируем
+  // НО: если secret задан, а header пустой — тоже блокируем
   if (expectedSecret && secretToken !== expectedSecret) {
+    console.error('SECRET TOKEN MISMATCH! Blocking request.');
     return res.status(401).json({ error: 'Unauthorized secret token' });
   }
 
   const update = req.body;
   if (!update) {
+    console.log('Empty body');
     return res.status(200).json({ status: 'empty_update' });
   }
+
+  console.log('Update type:', Object.keys(update).join(', '));
 
   const supabase = getSupabase();
   const miniappUrl = process.env.MINIAPP_URL || 'https://t.me';
   const ownerId = process.env.OWNER_ID ? Number(process.env.OWNER_ID) : null;
+  console.log('OWNER_ID:', ownerId);
 
   try {
-    // 1. Handle regular text messages & commands
+    // Handle text messages & commands
     if (update.message) {
       const msg = update.message;
       const chatId = msg.chat.id;
       const text = msg.text || '';
       const fromUser = msg.from;
 
+      console.log('Message from:', fromUser?.id, 'text:', text, 'chat:', chatId);
+
       if (!fromUser) {
+        console.log('No fromUser');
         return res.status(200).json({ ok: true });
       }
 
-      // Upsert user in Supabase
+      // Upsert user
       if (supabase) {
+        console.log('Upserting user to Supabase...');
         await supabase.from('users').upsert(
           {
             telegram_id: fromUser.id,
@@ -95,16 +115,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const isOwnerOrAdmin = Boolean(ownerId && fromUser.id === ownerId);
+      console.log('isOwnerOrAdmin:', isOwnerOrAdmin);
 
-      // Command: /start
+      // /start
       if (text.startsWith('/start')) {
+        console.log('Processing /start command');
         const welcomeText =
-          `👋 <b>Добро пожаловать в сервис мгновенного выкупа чеков USDT!</b>\n\n` +
+          `👋 <b>Добро пожаловать!</b>\n\n` +
           `💰 Продавайте чеки <b>CryptoBot & Send</b> по максимальному курсу с моментальной выплатой на карту или СБП (0% комиссия).\n\n` +
-          `⚡️ <b>Преимущества:</b>\n` +
-          `• Моментальные переводы СБП в любые банки РФ (Сбер, Т-Банк, ВТБ, Альфа)\n` +
-          `• Официальный PDF-чек к каждой сделке\n` +
-          `• Бонусы за объем до +1.8% и кэшбэк по рангам\n\n` +
           `Нажмите кнопку ниже, чтобы открыть обменник:`;
 
         const keyboard = {
@@ -115,37 +133,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 web_app: { url: miniappUrl },
               },
             ],
-            [
-              {
-                text: '📢 Канал сервиса',
-                url: 'https://t.me/cryptoex_news',
-              },
-              {
-                text: '💬 Чат сообщества',
-                url: 'https://t.me/cryptoex_chat',
-              },
-            ],
             ...(isOwnerOrAdmin
-              ? [
-                  [
-                    {
-                      text: '⚙️ Панель управления (/admin)',
-                      callback_data: 'admin_menu',
-                    },
-                  ],
-                ]
+              ? [[{ text: '⚙️ Панель управления (/admin)', callback_data: 'admin_menu' }]]
               : []),
           ],
         };
 
         await sendTelegramMessage(chatId, welcomeText, keyboard);
+        console.log('/start response sent');
         return res.status(200).json({ ok: true });
       }
 
-      // Command: /admin
+      // /admin
       if (text.startsWith('/admin') || text === 'панель') {
+        console.log('Processing /admin command');
         if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ У вас нет прав администратора для этой команды.');
+          await sendTelegramMessage(chatId, '⛔️ У вас нет прав администратора.');
           return res.status(200).json({ ok: true });
         }
 
@@ -159,37 +162,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const adminText =
-          `👑 <b>Панель управления оператора СБП:</b>\n\n` +
-          `• Активных ордеров на выплату: <b>${pendingCount}</b>\n` +
-          `• Режим: Выплаты по СБП с генерацией PDF-чеков\n\n` +
-          `Выберите нужный раздел:`;
+          `👑 <b>Панель управления:</b>\n\n` +
+          `• Активных ордеров: <b>${pendingCount}</b>\n\n` +
+          `Выберите раздел:`;
 
         const adminKeyboard = {
           inline_keyboard: [
-            [
-              {
-                text: `📋 Очередь ордеров (${pendingCount})`,
-                callback_data: 'admin_orders_list',
-              },
-            ],
-            [
-              {
-                text: '📢 Обязательные подписки и задания',
-                callback_data: 'admin_tasks_list',
-              },
-            ],
-            [
-              {
-                text: '💎 Настройка рангов и надбавок',
-                callback_data: 'admin_tiers_list',
-              },
-            ],
-            [
-              {
-                text: '📱 Открыть Mini App',
-                web_app: { url: miniappUrl },
-              },
-            ],
+            [{ text: `📋 Очередь ордеров (${pendingCount})`, callback_data: 'admin_orders_list' }],
+            [{ text: '📱 Открыть Mini App', web_app: { url: miniappUrl } }],
           ],
         };
 
@@ -197,8 +177,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true });
       }
 
-      // Command: /orders
+      // /orders
       if (text.startsWith('/orders') || text === 'ордеры') {
+        console.log('Processing /orders command');
         if (!isOwnerOrAdmin) {
           await sendTelegramMessage(chatId, '⛔️ Доступно только администраторам.');
           return res.status(200).json({ ok: true });
@@ -213,34 +194,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .limit(5);
 
           if (!orders || orders.length === 0) {
-            await sendTelegramMessage(chatId, '✅ На данный момент нет новых ожидающих ордеров на выплату.');
+            await sendTelegramMessage(chatId, '✅ Нет новых ордеров.');
             return res.status(200).json({ ok: true });
           }
 
           for (const ord of orders) {
             const reqData = ord.requisite || {};
             const ordMsg =
-              `⚡️ <b>Заявка ${ord.order_number}</b>\n` +
-              `Сумма: <b>${ord.crypto_amount} ${ord.crypto_symbol}</b> → <b>${ord.fiat_amount} ₽</b>\n` +
-              `Банк: <b>${reqData.bank_name || 'СБП'}</b>\n` +
-              `Счет / Номер: <code>${reqData.account_number}</code>\n` +
-              `Получатель: ${reqData.recipient_name || 'Не указан'}\n` +
-              `Чек: <code>${ord.cheque_code}</code>`;
+              `⚡️ <b>${ord.order_number}</b>\n` +
+              `💰 ${ord.crypto_amount} ${ord.crypto_symbol} → ${ord.fiat_amount} ₽\n` +
+              `🏦 ${reqData.bank_name || 'СБП'} | <code>${reqData.account_number}</code>\n` +
+              `👤 @${ord.user_username || 'unknown'}\n` +
+              `🧾 <code>${ord.cheque_code}</code>`;
 
             const ordButtons = {
               inline_keyboard: [
-                [
-                  {
-                    text: '💳 Подтвердить выплату СБП (PDF)',
-                    callback_data: `pay_order_${ord.id}`,
-                  },
-                ],
-                [
-                  {
-                    text: '❌ Отклонить',
-                    callback_data: `reject_order_${ord.id}`,
-                  },
-                ],
+                [{ text: '💳 Подтвердить выплату', callback_data: `pay_order_${ord.id}` }],
+                [{ text: '❌ Отклонить', callback_data: `reject_order_${ord.id}` }],
               ],
             };
             await sendTelegramMessage(chatId, ordMsg, ordButtons);
@@ -248,17 +218,61 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         return res.status(200).json({ ok: true });
       }
+
+      // Unknown command
+      console.log('Unknown command, ignoring');
+      return res.status(200).json({ ok: true });
     }
 
-    // 2. Handle Callback queries (Button clicks)
+    // Callback queries
     if (update.callback_query) {
       const cb = update.callback_query;
       const cbData = cb.data || '';
       const chatId = cb.message?.chat.id;
 
+      console.log('Callback query:', cbData, 'chat:', chatId);
+
       await answerCallbackQuery(cb.id);
 
+      if (cbData === 'admin_menu') {
+        console.log('Admin menu callback');
+        if (!chatId) return res.status(200).json({ ok: true });
+
+        const isOwnerOrAdmin = Boolean(ownerId && cb.from?.id === ownerId);
+        if (!isOwnerOrAdmin) {
+          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
+          return res.status(200).json({ ok: true });
+        }
+
+        let pendingCount = 0;
+        if (supabase) {
+          const { count } = await supabase
+            .from('orders')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'new');
+          pendingCount = count || 0;
+        }
+
+        const adminText = `👑 <b>Панель управления</b>\n\nАктивных ордеров: <b>${pendingCount}</b>`;
+        const adminKeyboard = {
+          inline_keyboard: [
+            [{ text: `📋 Ордеры (${pendingCount})`, callback_data: 'admin_orders_list' }],
+            [{ text: '📱 Mini App', web_app: { url: miniappUrl } }],
+          ],
+        };
+        await sendTelegramMessage(chatId, adminText, adminKeyboard);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (cbData === 'admin_orders_list') {
+        console.log('Orders list callback');
+        if (!chatId) return res.status(200).json({ ok: true });
+        await sendTelegramMessage(chatId, 'Используйте команду /orders для просмотра очереди.');
+        return res.status(200).json({ ok: true });
+      }
+
       if (chatId && cbData.startsWith('pay_order_')) {
+        console.log('Pay order callback:', cbData);
         const orderId = cbData.replace('pay_order_', '');
         if (supabase) {
           const operationId = `SBP_RUR_${Math.floor(100000000 + Math.random() * 900000000)}`;
@@ -270,11 +284,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               status: 'paid',
               paid_at: nowStr,
               payout_tx_id: operationId,
-              pdf_receipt: {
-                operationId,
-                status: 'SUCCESS',
-                paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              },
+              pdf_receipt: { operationId, status: 'SUCCESS', paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
             })
             .eq('id', orderId)
             .select()
@@ -282,29 +292,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           if (updatedOrder) {
             const successText =
-              `✅ <b>Выплата по ордеру ${updatedOrder.order_number} успешно подтверждена!</b>\n\n` +
-              `Сумма: <b>${updatedOrder.fiat_amount} ₽</b>\n` +
-              `Номер СБП операции: <code>${operationId}</code>\n` +
-              `PDF чек сформирован и прикреплен к сделке.`;
-
-            await sendTelegramMessage(chatId, successText, {
-              inline_keyboard: [
-                [
-                  {
-                    text: '🔍 Посмотреть сделку в Mini App',
-                    web_app: { url: miniappUrl },
-                  },
-                ],
-              ],
-            });
+              `✅ <b>Выплата ${updatedOrder.order_number} подтверждена!</b>\n\n` +
+              `💰 ${updatedOrder.fiat_amount} ₽\n` +
+              `🆔 <code>${operationId}</code>`;
+            await sendTelegramMessage(chatId, successText);
           }
         }
+        return res.status(200).json({ ok: true });
+      }
+
+      if (chatId && cbData.startsWith('reject_order_')) {
+        console.log('Reject order callback:', cbData);
+        const orderId = cbData.replace('reject_order_', '');
+        if (supabase) {
+          await supabase.from('orders').update({ status: 'rejected' }).eq('id', orderId);
+          await sendTelegramMessage(chatId, '❌ Ордер отклонен.');
+        }
+        return res.status(200).json({ ok: true });
       }
     }
 
+    console.log('Unknown update type, returning ok');
     return res.status(200).json({ ok: true });
   } catch (err: any) {
-    console.error('Error processing Telegram webhook:', err);
+    console.error('WEBHOOK ERROR:', err);
     return res.status(200).json({ error: err.message });
   }
 }
