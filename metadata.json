@@ -1,0 +1,6 @@
+{
+  "name": "CryptoNexa TMA",
+  "description": "Telegram MiniApp CryptoNexa для моментального выкупа чеков USDT с выплатой на СБП, системой заданий, рангов и PDF-чеками.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
