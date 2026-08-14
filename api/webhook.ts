@@ -15,12 +15,7 @@ async function sendTelegramMessage(chatId: number | string, text: string, replyM
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
-      }),
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }),
     });
   } catch (err) {
     console.error('sendMessage error:', err);
@@ -43,7 +38,7 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
-    return res.status(200).json({ status: 'ok' });
+    return res.status(200).json({ status: 'ok', message: 'Telegram Webhook Endpoint' });
   }
 
   const update = req.body;
@@ -54,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const ownerId = process.env.OWNER_ID ? Number(process.env.OWNER_ID) : null;
 
   try {
-    // ========== TEXT MESSAGES ==========
+    // TEXT MESSAGES
     if (update.message) {
       const msg = update.message;
       const chatId = msg.chat.id;
@@ -64,7 +59,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const isOwnerOrAdmin = Boolean(ownerId && fromUser.id === ownerId);
 
-      // Upsert user
       if (supabase) {
         await supabase.from('users').upsert(
           {
@@ -105,26 +99,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         let pendingCount = 0;
         if (supabase) {
-          const { count } = await supabase
-            .from('orders')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'new');
+          const { count } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'new');
           pendingCount = count || 0;
         }
 
-        const adminText =
-          `👑 <b>Панель управления оператора СБП:</b>\n\n` +
-          `• Активных ордеров на выплату: <b>${pendingCount}</b>\n` +
-          `• Режим: Выплаты по СБП с генерацией PDF-чеков\n\n` +
-          `Выберите нужный раздел:`;
-
+        const adminText = `👑 <b>Панель управления</b>\n\nАктивных ордеров: <b>${pendingCount}</b>`;
         const adminKeyboard = {
           inline_keyboard: [
-            [{ text: `📋 Очередь ордеров (${pendingCount})`, callback_data: 'admin_orders_list' }],
-            [{ text: '📢 Обязательные подписки и задания', callback_data: 'admin_tasks_list' }],
-            [{ text: '💎 Настройка рангов и надбавок', callback_data: 'admin_tiers_list' }],
+            [{ text: `📋 Ордеры (${pendingCount})`, callback_data: 'admin_orders_list' }],
+            [{ text: '📢 Задания', callback_data: 'admin_tasks_list' }],
+            [{ text: '💎 Ранги', callback_data: 'admin_tiers_list' }],
             [{ text: '💰 Баланс CryptoBot', callback_data: 'admin_cryptobot_balance' }],
-            [{ text: '📱 Открыть Mini App', web_app: { url: miniappUrl } }],
+            [{ text: '📱 Mini App', web_app: { url: miniappUrl } }],
           ],
         };
         await sendTelegramMessage(chatId, adminText, adminKeyboard);
@@ -134,44 +120,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // /orders
       if (text.startsWith('/orders') || text === 'ордеры') {
         if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Доступно только администраторам.');
+          await sendTelegramMessage(chatId, '⛔️ Только для админов.');
           return res.status(200).json({ ok: true });
         }
 
         if (!supabase) {
-          await sendTelegramMessage(chatId, '⚠️ База данных недоступна.');
+          await sendTelegramMessage(chatId, '⚠️ БД недоступна.');
           return res.status(200).json({ ok: true });
         }
 
-        const { data: orders } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('status', 'new')
-          .order('created_at', { ascending: false })
-          .limit(5);
-
+        const { data: orders } = await supabase.from('orders').select('*').eq('status', 'new').order('created_at', { ascending: false }).limit(5);
         if (!orders || orders.length === 0) {
-          await sendTelegramMessage(chatId, '✅ На данный момент нет новых ожидающих ордеров.');
+          await sendTelegramMessage(chatId, '✅ Нет новых ордеров.');
           return res.status(200).json({ ok: true });
         }
 
         for (const ord of orders) {
           const reqData = ord.requisite || {};
           const ordMsg =
-            `⚡️ <b>Заявка ${ord.order_number}</b>\n` +
+            `⚡️ <b>${ord.order_number}</b>\n` +
             `💰 ${ord.crypto_amount} ${ord.crypto_symbol} → <b>${ord.fiat_amount} ₽</b>\n` +
-            `🏦 Банк: <b>${reqData.bank_name || 'СБП'}</b>\n` +
-            `📱 Счет: <code>${reqData.account_number}</code>\n` +
-            `👤 Получатель: ${reqData.recipient_name || 'Не указан'}\n` +
-            `🧾 Чек: <code>${ord.cheque_code}</code>`;
+            `🏦 ${reqData.bank_name || 'СБП'} | <code>${reqData.account_number}</code>\n` +
+            `👤 @${ord.user_username || 'unknown'}\n` +
+            `🧾 <code>${ord.cheque_code}</code>`;
 
-          const ordButtons = {
+          await sendTelegramMessage(chatId, ordMsg, {
             inline_keyboard: [
-              [{ text: '💳 Подтвердить выплату СБП (PDF)', callback_data: `pay_order_${ord.id}` }],
+              [{ text: '💳 Подтвердить выплату', callback_data: `pay_order_${ord.id}` }],
               [{ text: '❌ Отклонить', callback_data: `reject_order_${ord.id}` }],
             ],
-          };
-          await sendTelegramMessage(chatId, ordMsg, ordButtons);
+          });
         }
         return res.status(200).json({ ok: true });
       }
@@ -179,7 +157,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // /balance
       if (text.startsWith('/balance') || text === 'баланс') {
         if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Доступно только администраторам.');
+          await sendTelegramMessage(chatId, '⛔️ Только для админов.');
           return res.status(200).json({ ok: true });
         }
 
@@ -191,37 +169,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         try {
           const [meRes, balRes] = await Promise.all([
-            fetch('https://pay.crypt.bot/api/getMe', {
-              headers: { 'Crypto-Pay-API-Token': token },
-            }),
-            fetch('https://pay.crypt.bot/api/getBalance', {
-              headers: { 'Crypto-Pay-API-Token': token },
-            }),
+            fetch('https://pay.crypt.bot/api/getMe', { headers: { 'Crypto-Pay-API-Token': token } }),
+            fetch('https://pay.crypt.bot/api/getBalance', { headers: { 'Crypto-Pay-API-Token': token } }),
           ]);
-
           const me = await meRes.json();
           const balance = await balRes.json();
 
           let text = `💰 <b>Баланс CryptoBot</b>\n\n`;
           if (me.ok) text += `Приложение: <b>${me.result?.name || 'CryptoBot'}</b>\n\n`;
-
           if (balance.ok && Array.isArray(balance.result)) {
-            for (const b of balance.result) {
-              text += `<b>${b.asset}:</b> <code>${b.available}</code>\n`;
-            }
+            for (const b of balance.result) text += `<b>${b.asset}:</b> <code>${b.available}</code>\n`;
           } else {
-            text += `⚠️ Ошибка: ${balance.description || 'Неизвестная ошибка'}`;
+            text += `⚠️ Ошибка: ${balance.description || 'Неизвестно'}`;
           }
-
           await sendTelegramMessage(chatId, text);
         } catch (e: any) {
-          await sendTelegramMessage(chatId, `⚠️ Ошибка подключения: ${e.message}`);
+          await sendTelegramMessage(chatId, `⚠️ Ошибка: ${e.message}`);
         }
         return res.status(200).json({ ok: true });
       }
     }
 
-    // ========== CALLBACK QUERIES (BUTTON CLICKS) ==========
+    // CALLBACK QUERIES
     if (update.callback_query) {
       const cb = update.callback_query;
       const cbData = cb.data || '';
@@ -230,249 +199,90 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       await answerCallbackQuery(cb.id);
 
-      // admin_menu — кнопка из /start
       if (cbData === 'admin_menu') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          return res.status(200).json({ ok: true });
-        }
-
+        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
         let pendingCount = 0;
-        if (supabase) {
-          const { count } = await supabase
-            .from('orders')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'new');
-          pendingCount = count || 0;
-        }
-
-        const adminText =
-          `👑 <b>Панель управления оператора СБП:</b>\n\n` +
-          `• Активных ордеров на выплату: <b>${pendingCount}</b>\n` +
-          `• Режим: Выплаты по СБП с генерацией PDF-чеков\n\n` +
-          `Выберите нужный раздел:`;
-
-        const adminKeyboard = {
+        if (supabase) { const { count } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'new'); pendingCount = count || 0; }
+        await sendTelegramMessage(chatId, `👑 <b>Панель управления</b>\n\nОрдеров: <b>${pendingCount}</b>`, {
           inline_keyboard: [
-            [{ text: `📋 Очередь ордеров (${pendingCount})`, callback_data: 'admin_orders_list' }],
-            [{ text: '📢 Обязательные подписки и задания', callback_data: 'admin_tasks_list' }],
-            [{ text: '💎 Настройка рангов и надбавок', callback_data: 'admin_tiers_list' }],
-            [{ text: '💰 Баланс CryptoBot', callback_data: 'admin_cryptobot_balance' }],
-            [{ text: '📱 Открыть Mini App', web_app: { url: miniappUrl } }],
+            [{ text: `📋 Ордеры (${pendingCount})`, callback_data: 'admin_orders_list' }],
+            [{ text: '📢 Задания', callback_data: 'admin_tasks_list' }],
+            [{ text: '💎 Ранги', callback_data: 'admin_tiers_list' }],
+            [{ text: '💰 Баланс', callback_data: 'admin_cryptobot_balance' }],
+            [{ text: '📱 Mini App', web_app: { url: miniappUrl } }],
           ],
-        };
-        await sendTelegramMessage(chatId, adminText, adminKeyboard);
+        });
         return res.status(200).json({ ok: true });
       }
 
-      // admin_orders_list — кнопка из /admin
       if (cbData === 'admin_orders_list') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          return res.status(200).json({ ok: true });
-        }
-
-        if (!supabase) {
-          await sendTelegramMessage(chatId, '⚠️ База данных недоступна.');
-          return res.status(200).json({ ok: true });
-        }
-
-        const { data: orders } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('status', 'new')
-          .order('created_at', { ascending: false })
-          .limit(10);
-
-        if (!orders || orders.length === 0) {
-          await sendTelegramMessage(chatId, '✅ <b>Очередь ордеров пуста</b>\n\nНет новых заявок на выплату.');
-          return res.status(200).json({ ok: true });
-        }
-
-        let ordersText = `📋 <b>Очередь ордеров на выплату (${orders.length}):</b>\n\n`;
+        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
+        if (!supabase) { await sendTelegramMessage(chatId, '⚠️ БД недоступна.'); return res.status(200).json({ ok: true }); }
+        const { data: orders } = await supabase.from('orders').select('*').eq('status', 'new').order('created_at', { ascending: false }).limit(10);
+        if (!orders || orders.length === 0) { await sendTelegramMessage(chatId, '✅ Очередь пуста.'); return res.status(200).json({ ok: true }); }
+        let text = `📋 <b>Очередь (${orders.length}):</b>\n\n`;
         for (const ord of orders) {
           const req = ord.requisite || {};
-          ordersText +=
-            `⚡️ <b>${ord.order_number}</b>\n` +
-            `💰 ${ord.crypto_amount} ${ord.crypto_symbol} → ${ord.fiat_amount} ₽\n` +
-            `🏦 ${req.bank_name || 'СБП'} | <code>${req.account_number || '-'}</code>\n` +
-            `👤 @${ord.user_username || 'unknown'}\n` +
-            `🧾 Чек: <code>${ord.cheque_code}</code>\n\n`;
+          text += `⚡️ <b>${ord.order_number}</b>\n💰 ${ord.crypto_amount} ${ord.crypto_symbol} → ${ord.fiat_amount} ₽\n🏦 ${req.bank_name || 'СБП'} | <code>${req.account_number || '-'}</code>\n👤 @${ord.user_username || 'unknown'}\n🧾 <code>${ord.cheque_code}</code>\n\n`;
         }
-
-        const backKeyboard = {
-          inline_keyboard: [
-            [{ text: '🔄 Обновить список', callback_data: 'admin_orders_list' }],
-            [{ text: '⬅️ Назад в меню', callback_data: 'admin_menu' }],
-          ],
-        };
-        await sendTelegramMessage(chatId, ordersText, backKeyboard);
+        await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '🔄 Обновить', callback_data: 'admin_orders_list' }], [{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
         return res.status(200).json({ ok: true });
       }
 
-      // admin_tasks_list — кнопка из /admin
       if (cbData === 'admin_tasks_list') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          return res.status(200).json({ ok: true });
-        }
-
-        if (!supabase) {
-          await sendTelegramMessage(chatId, '⚠️ База данных недоступна.');
-          return res.status(200).json({ ok: true });
-        }
-
-        const { data: tasks } = await supabase
-          .from('tasks')
-          .select('*')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false });
-
-        let tasksText = `📢 <b>Активные задания и подписки:</b>\n\n`;
-        if (!tasks || tasks.length === 0) {
-          tasksText += 'Нет активных заданий.\n';
-        } else {
-          for (const t of tasks) {
-            tasksText +=
-              `• <b>${t.title}</b> ${t.is_required_sub ? '(Обязательно)' : '(Бонус)'}\n` +
-              `  ${t.description}\n` +
-              `  Награда: +${t.reward_xp} XP${t.reward_usdt ? ` +${t.reward_usdt} USDT` : ''}\n\n`;
-          }
-        }
-
-        const backKeyboard = {
-          inline_keyboard: [[{ text: '⬅️ Назад в меню', callback_data: 'admin_menu' }]],
-        };
-        await sendTelegramMessage(chatId, tasksText, backKeyboard);
+        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
+        if (!supabase) { await sendTelegramMessage(chatId, '⚠️ БД недоступна.'); return res.status(200).json({ ok: true }); }
+        const { data: tasks } = await supabase.from('tasks').select('*').eq('is_active', true).order('created_at', { ascending: false });
+        let text = `📢 <b>Активные задания:</b>\n\n`;
+        if (!tasks || tasks.length === 0) { text += 'Нет заданий.\n'; }
+        else { for (const t of tasks) { text += `• <b>${t.title}</b> ${t.is_required_sub ? '(Обяз.)' : ''}\n  +${t.reward_xp} XP${t.reward_usdt ? ` +${t.reward_usdt} USDT` : ''}\n\n`; } }
+        await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
         return res.status(200).json({ ok: true });
       }
 
-      // admin_tiers_list — кнопка из /admin
       if (cbData === 'admin_tiers_list') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          return res.status(200).json({ ok: true });
-        }
-
-        if (!supabase) {
-          await sendTelegramMessage(chatId, '⚠️ База данных недоступна.');
-          return res.status(200).json({ ok: true });
-        }
-
-        const { data: tiers } = await supabase
-          .from('tiers_config')
-          .select('*')
-          .order('min_xp', { ascending: true });
-
-        let tiersText = `💎 <b>Ранги и процентные надбавки:</b>\n\n`;
-        if (!tiers || tiers.length === 0) {
-          tiersText += 'Нет данных о рангах.\n';
-        } else {
-          for (const t of tiers) {
-            tiersText +=
-              `<b>${t.title}</b> (${t.tier_key})\n` +
-              `  Бонус к курсу: +${t.rate_bonus}%\n` +
-              `  Кэшбэк: ${t.cashback_percent}%\n` +
-              `  Требуемый XP: ${t.min_xp}\n` +
-              `  Скорость: ${t.payout_speed_text}\n\n`;
-          }
-        }
-
-        const backKeyboard = {
-          inline_keyboard: [[{ text: '⬅️ Назад в меню', callback_data: 'admin_menu' }]],
-        };
-        await sendTelegramMessage(chatId, tiersText, backKeyboard);
+        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
+        if (!supabase) { await sendTelegramMessage(chatId, '⚠️ БД недоступна.'); return res.status(200).json({ ok: true }); }
+        const { data: tiers } = await supabase.from('tiers_config').select('*').order('min_xp', { ascending: true });
+        let text = `💎 <b>Ранги:</b>\n\n`;
+        if (!tiers || tiers.length === 0) { text += 'Нет данных.\n'; }
+        else { for (const t of tiers) { text += `<b>${t.title}</b> — +${t.rate_bonus}% курс, ${t.cashback_percent}% кэшбэк, от ${t.min_xp} XP\n`; } }
+        await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
         return res.status(200).json({ ok: true });
       }
 
-      // admin_cryptobot_balance — кнопка из /admin
       if (cbData === 'admin_cryptobot_balance') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          return res.status(200).json({ ok: true });
-        }
-
+        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
         const token = process.env.CRYPTOBOT_API_TOKEN;
-        if (!token) {
-          await sendTelegramMessage(chatId, '⚠️ CRYPTOBOT_API_TOKEN не настроен.');
-          return res.status(200).json({ ok: true });
-        }
-
+        if (!token) { await sendTelegramMessage(chatId, '⚠️ CRYPTOBOT_API_TOKEN не настроен.'); return res.status(200).json({ ok: true }); }
         try {
           const [meRes, balRes] = await Promise.all([
-            fetch('https://pay.crypt.bot/api/getMe', {
-              headers: { 'Crypto-Pay-API-Token': token },
-            }),
-            fetch('https://pay.crypt.bot/api/getBalance', {
-              headers: { 'Crypto-Pay-API-Token': token },
-            }),
+            fetch('https://pay.crypt.bot/api/getMe', { headers: { 'Crypto-Pay-API-Token': token } }),
+            fetch('https://pay.crypt.bot/api/getBalance', { headers: { 'Crypto-Pay-API-Token': token } }),
           ]);
-
-          const me = await meRes.json();
-          const balance = await balRes.json();
-
+          const me = await meRes.json(); const balance = await balRes.json();
           let text = `💰 <b>Баланс CryptoBot</b>\n\n`;
           if (me.ok) text += `Приложение: <b>${me.result?.name || 'CryptoBot'}</b>\n\n`;
-
-          if (balance.ok && Array.isArray(balance.result)) {
-            for (const b of balance.result) {
-              text += `<b>${b.asset}:</b> <code>${b.available}</code>\n`;
-            }
-          } else {
-            text += `⚠️ Ошибка: ${balance.description || 'Неизвестная ошибка'}`;
-          }
-
-          const backKeyboard = {
-            inline_keyboard: [[{ text: '⬅️ Назад в меню', callback_data: 'admin_menu' }]],
-          };
-          await sendTelegramMessage(chatId, text, backKeyboard);
-        } catch (e: any) {
-          await sendTelegramMessage(chatId, `⚠️ Ошибка подключения: ${e.message}`);
-        }
+          if (balance.ok && Array.isArray(balance.result)) { for (const b of balance.result) text += `<b>${b.asset}:</b> <code>${b.available}</code>\n`; }
+          else { text += `⚠️ Ошибка: ${balance.description || 'Неизвестно'}`; }
+          await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
+        } catch (e: any) { await sendTelegramMessage(chatId, `⚠️ Ошибка: ${e.message}`); }
         return res.status(200).json({ ok: true });
       }
 
-      // pay_order_* — кнопка "Подтвердить выплату"
       if (chatId && cbData.startsWith('pay_order_')) {
         const orderId = cbData.replace('pay_order_', '');
         if (supabase) {
           const operationId = `SBP_RUR_${Math.floor(100000000 + Math.random() * 900000000)}`;
-          const nowStr = new Date().toISOString();
-
-          const { data: updatedOrder } = await supabase
-            .from('orders')
-            .update({
-              status: 'paid',
-              paid_at: nowStr,
-              payout_tx_id: operationId,
-              pdf_receipt: {
-                operationId,
-                status: 'SUCCESS',
-                paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              },
-            })
-            .eq('id', orderId)
-            .select()
-            .single();
-
-          if (updatedOrder) {
-            const successText =
-              `✅ <b>Выплата ${updatedOrder.order_number} подтверждена!</b>\n\n` +
-              `💰 ${updatedOrder.fiat_amount} ₽\n` +
-              `🆔 <code>${operationId}</code>`;
-            await sendTelegramMessage(chatId, successText);
-          }
+          const { data: updatedOrder } = await supabase.from('orders').update({ status: 'paid', paid_at: new Date().toISOString(), payout_tx_id: operationId, pdf_receipt: { operationId, status: 'SUCCESS', paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } }).eq('id', orderId).select().single();
+          if (updatedOrder) { await sendTelegramMessage(chatId, `✅ <b>${updatedOrder.order_number}</b> подтвержден!\n💰 ${updatedOrder.fiat_amount} ₽\n🆔 <code>${operationId}</code>`); }
         }
         return res.status(200).json({ ok: true });
       }
 
-      // reject_order_* — кнопка "Отклонить"
       if (chatId && cbData.startsWith('reject_order_')) {
         const orderId = cbData.replace('reject_order_', '');
-        if (supabase) {
-          await supabase.from('orders').update({ status: 'rejected' }).eq('id', orderId);
-          await sendTelegramMessage(chatId, '❌ Ордер отклонен.');
-        }
+        if (supabase) { await supabase.from('orders').update({ status: 'rejected' }).eq('id', orderId); await sendTelegramMessage(chatId, '❌ Ордер отклонен.'); }
         return res.status(200).json({ ok: true });
       }
     }
