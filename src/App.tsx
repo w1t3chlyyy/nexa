@@ -39,21 +39,65 @@ const reqKey = tgUser ? `cryptobot_requisites_${tgUser.id}` : 'cryptobot_requisi
 const taskKey = tgUser ? `cryptobot_tasks_${tgUser.id}` : 'cryptobot_tasks';
 const txKey = tgUser ? `cryptobot_transactions_${tgUser.id}` : 'cryptobot_transactions';
 
+// Добавьте ПЕРЕД функцией buildInitialUser():
+const EMPTY_USER_STATS: UserStats = {
+  telegramId: '0',
+  username: 'user',
+  fullName: 'Пользователь',
+  avatarUrl: '',
+  isPremium: false,
+  isVerified: false,
+  tier: 'Bronze',
+  xp: 0,
+  xpToNextTier: 250,
+  completedDeals: 0,
+  totalVolumeRub: 0,
+  totalVolumeUsd: 0,
+  avgSpeedSeconds: 0,
+  referralCode: '',
+  referralsCount: 0,
+  referralEarningsUsdt: 0,
+  joinedDate: new Date().toLocaleDateString('ru-RU'),
+  streakDays: 0,
+  streakClaimedToday: false,
+};
+
+// Замените функцию buildInitialUser() полностью:
 function buildInitialUser(): UserStats {
   const saved = localStorage.getItem(userKey);
-  const base: UserStats = saved ? JSON.parse(saved) : INITIAL_USER_STATS;
 
+  if (saved) {
+    // Пользователь уже открывал приложение — берём его прогресс
+    const base: UserStats = JSON.parse(saved);
+    if (tgUser) {
+      return {
+        ...base,
+        telegramId: tgUser.id,
+        username: tgUser.username,
+        fullName: tgUser.fullName,
+        avatarUrl: tgUser.avatarUrl,
+        isPremium: tgUser.isPremium,
+      };
+    }
+    return base;
+  }
+
+  // Нет сохранённых данных = новый пользователь
   if (tgUser) {
+    // В Telegram Mini App — чистый профиль с нуля
     return {
-      ...base,
+      ...EMPTY_USER_STATS,
       telegramId: tgUser.id,
       username: tgUser.username,
       fullName: tgUser.fullName,
       avatarUrl: tgUser.avatarUrl,
       isPremium: tgUser.isPremium,
+      referralCode: `ref_${tgUser.id.slice(-6)}_${Math.floor(Math.random() * 1000)}`,
     };
   }
-  return base;
+
+  // Вне Telegram (обычный браузер) — demo-режим
+  return INITIAL_USER_STATS;
 }
 
 export default function App() {
