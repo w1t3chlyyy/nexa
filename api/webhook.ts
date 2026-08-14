@@ -1,295 +1,119 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
+console.log('=== FILE LOADED ===');
+
 const getSupabase = () => {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  console.log('Supabase URL exists:', !!url, 'Key exists:', !!key);
   if (!url || !key) return null;
   return createClient(url, key);
 };
 
 async function sendTelegramMessage(chatId: number | string, text: string, replyMarkup?: any) {
+  console.log('>>> sendTelegramMessage called, chatId:', chatId);
   const token = process.env.BOT_TOKEN;
-  if (!token) return;
+  console.log('BOT_TOKEN exists:', !!token);
+  if (!token) {
+    console.log('!!! NO BOT_TOKEN !!!');
+    return;
+  }
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    console.log('Sending to Telegram...');
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }),
     });
+    const data = await res.json();
+    console.log('Telegram response:', JSON.stringify(data));
   } catch (err) {
-    console.error('sendMessage error:', err);
-  }
-}
-
-async function answerCallbackQuery(callbackQueryId: string, text?: string) {
-  const token = process.env.BOT_TOKEN;
-  if (!token) return;
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
-    });
-  } catch (err) {
-    console.error('answerCallbackQuery error:', err);
+    console.error('sendMessage ERROR:', err);
   }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log('=== HANDLER CALLED ===');
+  console.log('Method:', req.method);
+  console.log('Headers:', JSON.stringify(req.headers));
+  console.log('Body type:', typeof req.body);
+  console.log('Body:', JSON.stringify(req.body));
+
   if (req.method !== 'POST') {
+    console.log('Not POST, returning ok');
     return res.status(200).json({ status: 'ok', message: 'Telegram Webhook Endpoint' });
   }
 
   const update = req.body;
-  if (!update) return res.status(200).json({ ok: true });
+  console.log('Update keys:', Object.keys(update || {}).join(', '));
+
+  if (!update) {
+    console.log('Empty body!');
+    return res.status(200).json({ ok: true });
+  }
 
   const supabase = getSupabase();
   const miniappUrl = process.env.MINIAPP_URL || 'https://t.me';
   const ownerId = process.env.OWNER_ID ? Number(process.env.OWNER_ID) : null;
+  console.log('OWNER_ID:', ownerId, 'MINIAPP_URL:', miniappUrl);
 
   try {
-    // TEXT MESSAGES
     if (update.message) {
+      console.log('>>> Processing MESSAGE');
       const msg = update.message;
       const chatId = msg.chat.id;
       const text = (msg.text || '').toLowerCase();
       const fromUser = msg.from;
-      if (!fromUser) return res.status(200).json({ ok: true });
+      console.log('Chat ID:', chatId, 'Text:', text, 'From:', fromUser?.id);
+
+      if (!fromUser) {
+        console.log('No fromUser!');
+        return res.status(200).json({ ok: true });
+      }
 
       const isOwnerOrAdmin = Boolean(ownerId && fromUser.id === ownerId);
-
-      if (supabase) {
-        await supabase.from('users').upsert(
-          {
-            telegram_id: fromUser.id,
-            username: fromUser.username || null,
-            full_name: [fromUser.first_name, fromUser.last_name].filter(Boolean).join(' ') || 'Пользователь',
-            role: isOwnerOrAdmin ? 'owner' : 'user',
-          },
-          { onConflict: 'telegram_id' }
-        );
-      }
+      console.log('isOwnerOrAdmin:', isOwnerOrAdmin);
 
       // /start
       if (text.startsWith('/start')) {
-        const welcomeText =
-          `👋 <b>Добро пожаловать!</b>\n\n` +
-          `💰 Продавайте чеки <b>CryptoBot & Send</b> по максимальному курсу с моментальной выплатой на карту или СБП (0% комиссия).\n\n` +
-          `Нажмите кнопку ниже, чтобы открыть обменник:`;
-
+        console.log('>>> HANDLING /start');
+        const welcomeText = `👋 <b>Добро пожаловать!</b>\n\n💰 Продавайте чеки по максимальному курсу.`;
         const keyboard = {
           inline_keyboard: [
-            [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
-            ...(isOwnerOrAdmin
-              ? [[{ text: '⚙️ Панель управления (/admin)', callback_data: 'admin_menu' }]]
-              : []),
+            [{ text: '🚀 Открыть обменник', web_app: { url: miniappUrl } }],
           ],
         };
         await sendTelegramMessage(chatId, welcomeText, keyboard);
+        console.log('>>> /start response sent');
         return res.status(200).json({ ok: true });
       }
 
       // /admin
-      if (text.startsWith('/admin') || text === 'панель') {
+      if (text.startsWith('/admin')) {
+        console.log('>>> HANDLING /admin');
         if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ У вас нет прав администратора.');
+          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
           return res.status(200).json({ ok: true });
         }
-
-        let pendingCount = 0;
-        if (supabase) {
-          const { count } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'new');
-          pendingCount = count || 0;
-        }
-
-        const adminText = `👑 <b>Панель управления</b>\n\nАктивных ордеров: <b>${pendingCount}</b>`;
-        const adminKeyboard = {
-          inline_keyboard: [
-            [{ text: `📋 Ордеры (${pendingCount})`, callback_data: 'admin_orders_list' }],
-            [{ text: '📢 Задания', callback_data: 'admin_tasks_list' }],
-            [{ text: '💎 Ранги', callback_data: 'admin_tiers_list' }],
-            [{ text: '💰 Баланс CryptoBot', callback_data: 'admin_cryptobot_balance' }],
-            [{ text: '📱 Mini App', web_app: { url: miniappUrl } }],
-          ],
-        };
-        await sendTelegramMessage(chatId, adminText, adminKeyboard);
+        await sendTelegramMessage(chatId, '👑 <b>Админ панель</b>\n\nРаботает!');
         return res.status(200).json({ ok: true });
       }
 
-      // /orders
-      if (text.startsWith('/orders') || text === 'ордеры') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Только для админов.');
-          return res.status(200).json({ ok: true });
-        }
-
-        if (!supabase) {
-          await sendTelegramMessage(chatId, '⚠️ БД недоступна.');
-          return res.status(200).json({ ok: true });
-        }
-
-        const { data: orders } = await supabase.from('orders').select('*').eq('status', 'new').order('created_at', { ascending: false }).limit(5);
-        if (!orders || orders.length === 0) {
-          await sendTelegramMessage(chatId, '✅ Нет новых ордеров.');
-          return res.status(200).json({ ok: true });
-        }
-
-        for (const ord of orders) {
-          const reqData = ord.requisite || {};
-          const ordMsg =
-            `⚡️ <b>${ord.order_number}</b>\n` +
-            `💰 ${ord.crypto_amount} ${ord.crypto_symbol} → <b>${ord.fiat_amount} ₽</b>\n` +
-            `🏦 ${reqData.bank_name || 'СБП'} | <code>${reqData.account_number}</code>\n` +
-            `👤 @${ord.user_username || 'unknown'}\n` +
-            `🧾 <code>${ord.cheque_code}</code>`;
-
-          await sendTelegramMessage(chatId, ordMsg, {
-            inline_keyboard: [
-              [{ text: '💳 Подтвердить выплату', callback_data: `pay_order_${ord.id}` }],
-              [{ text: '❌ Отклонить', callback_data: `reject_order_${ord.id}` }],
-            ],
-          });
-        }
-        return res.status(200).json({ ok: true });
-      }
-
-      // /balance
-      if (text.startsWith('/balance') || text === 'баланс') {
-        if (!isOwnerOrAdmin) {
-          await sendTelegramMessage(chatId, '⛔️ Только для админов.');
-          return res.status(200).json({ ok: true });
-        }
-
-        const token = process.env.CRYPTOBOT_API_TOKEN;
-        if (!token) {
-          await sendTelegramMessage(chatId, '⚠️ CRYPTOBOT_API_TOKEN не настроен.');
-          return res.status(200).json({ ok: true });
-        }
-
-        try {
-          const [meRes, balRes] = await Promise.all([
-            fetch('https://pay.crypt.bot/api/getMe', { headers: { 'Crypto-Pay-API-Token': token } }),
-            fetch('https://pay.crypt.bot/api/getBalance', { headers: { 'Crypto-Pay-API-Token': token } }),
-          ]);
-          const me = await meRes.json();
-          const balance = await balRes.json();
-
-          let text = `💰 <b>Баланс CryptoBot</b>\n\n`;
-          if (me.ok) text += `Приложение: <b>${me.result?.name || 'CryptoBot'}</b>\n\n`;
-          if (balance.ok && Array.isArray(balance.result)) {
-            for (const b of balance.result) text += `<b>${b.asset}:</b> <code>${b.available}</code>\n`;
-          } else {
-            text += `⚠️ Ошибка: ${balance.description || 'Неизвестно'}`;
-          }
-          await sendTelegramMessage(chatId, text);
-        } catch (e: any) {
-          await sendTelegramMessage(chatId, `⚠️ Ошибка: ${e.message}`);
-        }
-        return res.status(200).json({ ok: true });
-      }
+      console.log('>>> Unknown command, ignoring');
+      return res.status(200).json({ ok: true });
     }
 
-    // CALLBACK QUERIES
     if (update.callback_query) {
-      const cb = update.callback_query;
-      const cbData = cb.data || '';
-      const chatId = cb.message?.chat.id;
-      const isOwnerOrAdmin = Boolean(ownerId && cb.from?.id === ownerId);
-
-      await answerCallbackQuery(cb.id);
-
-      if (cbData === 'admin_menu') {
-        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
-        let pendingCount = 0;
-        if (supabase) { const { count } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'new'); pendingCount = count || 0; }
-        await sendTelegramMessage(chatId, `👑 <b>Панель управления</b>\n\nОрдеров: <b>${pendingCount}</b>`, {
-          inline_keyboard: [
-            [{ text: `📋 Ордеры (${pendingCount})`, callback_data: 'admin_orders_list' }],
-            [{ text: '📢 Задания', callback_data: 'admin_tasks_list' }],
-            [{ text: '💎 Ранги', callback_data: 'admin_tiers_list' }],
-            [{ text: '💰 Баланс', callback_data: 'admin_cryptobot_balance' }],
-            [{ text: '📱 Mini App', web_app: { url: miniappUrl } }],
-          ],
-        });
-        return res.status(200).json({ ok: true });
-      }
-
-      if (cbData === 'admin_orders_list') {
-        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
-        if (!supabase) { await sendTelegramMessage(chatId, '⚠️ БД недоступна.'); return res.status(200).json({ ok: true }); }
-        const { data: orders } = await supabase.from('orders').select('*').eq('status', 'new').order('created_at', { ascending: false }).limit(10);
-        if (!orders || orders.length === 0) { await sendTelegramMessage(chatId, '✅ Очередь пуста.'); return res.status(200).json({ ok: true }); }
-        let text = `📋 <b>Очередь (${orders.length}):</b>\n\n`;
-        for (const ord of orders) {
-          const req = ord.requisite || {};
-          text += `⚡️ <b>${ord.order_number}</b>\n💰 ${ord.crypto_amount} ${ord.crypto_symbol} → ${ord.fiat_amount} ₽\n🏦 ${req.bank_name || 'СБП'} | <code>${req.account_number || '-'}</code>\n👤 @${ord.user_username || 'unknown'}\n🧾 <code>${ord.cheque_code}</code>\n\n`;
-        }
-        await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '🔄 Обновить', callback_data: 'admin_orders_list' }], [{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
-        return res.status(200).json({ ok: true });
-      }
-
-      if (cbData === 'admin_tasks_list') {
-        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
-        if (!supabase) { await sendTelegramMessage(chatId, '⚠️ БД недоступна.'); return res.status(200).json({ ok: true }); }
-        const { data: tasks } = await supabase.from('tasks').select('*').eq('is_active', true).order('created_at', { ascending: false });
-        let text = `📢 <b>Активные задания:</b>\n\n`;
-        if (!tasks || tasks.length === 0) { text += 'Нет заданий.\n'; }
-        else { for (const t of tasks) { text += `• <b>${t.title}</b> ${t.is_required_sub ? '(Обяз.)' : ''}\n  +${t.reward_xp} XP${t.reward_usdt ? ` +${t.reward_usdt} USDT` : ''}\n\n`; } }
-        await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
-        return res.status(200).json({ ok: true });
-      }
-
-      if (cbData === 'admin_tiers_list') {
-        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
-        if (!supabase) { await sendTelegramMessage(chatId, '⚠️ БД недоступна.'); return res.status(200).json({ ok: true }); }
-        const { data: tiers } = await supabase.from('tiers_config').select('*').order('min_xp', { ascending: true });
-        let text = `💎 <b>Ранги:</b>\n\n`;
-        if (!tiers || tiers.length === 0) { text += 'Нет данных.\n'; }
-        else { for (const t of tiers) { text += `<b>${t.title}</b> — +${t.rate_bonus}% курс, ${t.cashback_percent}% кэшбэк, от ${t.min_xp} XP\n`; } }
-        await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
-        return res.status(200).json({ ok: true });
-      }
-
-      if (cbData === 'admin_cryptobot_balance') {
-        if (!isOwnerOrAdmin) { await sendTelegramMessage(chatId, '⛔️ Нет прав.'); return res.status(200).json({ ok: true }); }
-        const token = process.env.CRYPTOBOT_API_TOKEN;
-        if (!token) { await sendTelegramMessage(chatId, '⚠️ CRYPTOBOT_API_TOKEN не настроен.'); return res.status(200).json({ ok: true }); }
-        try {
-          const [meRes, balRes] = await Promise.all([
-            fetch('https://pay.crypt.bot/api/getMe', { headers: { 'Crypto-Pay-API-Token': token } }),
-            fetch('https://pay.crypt.bot/api/getBalance', { headers: { 'Crypto-Pay-API-Token': token } }),
-          ]);
-          const me = await meRes.json(); const balance = await balRes.json();
-          let text = `💰 <b>Баланс CryptoBot</b>\n\n`;
-          if (me.ok) text += `Приложение: <b>${me.result?.name || 'CryptoBot'}</b>\n\n`;
-          if (balance.ok && Array.isArray(balance.result)) { for (const b of balance.result) text += `<b>${b.asset}:</b> <code>${b.available}</code>\n`; }
-          else { text += `⚠️ Ошибка: ${balance.description || 'Неизвестно'}`; }
-          await sendTelegramMessage(chatId, text, { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_menu' }]] });
-        } catch (e: any) { await sendTelegramMessage(chatId, `⚠️ Ошибка: ${e.message}`); }
-        return res.status(200).json({ ok: true });
-      }
-
-      if (chatId && cbData.startsWith('pay_order_')) {
-        const orderId = cbData.replace('pay_order_', '');
-        if (supabase) {
-          const operationId = `SBP_RUR_${Math.floor(100000000 + Math.random() * 900000000)}`;
-          const { data: updatedOrder } = await supabase.from('orders').update({ status: 'paid', paid_at: new Date().toISOString(), payout_tx_id: operationId, pdf_receipt: { operationId, status: 'SUCCESS', paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } }).eq('id', orderId).select().single();
-          if (updatedOrder) { await sendTelegramMessage(chatId, `✅ <b>${updatedOrder.order_number}</b> подтвержден!\n💰 ${updatedOrder.fiat_amount} ₽\n🆔 <code>${operationId}</code>`); }
-        }
-        return res.status(200).json({ ok: true });
-      }
-
-      if (chatId && cbData.startsWith('reject_order_')) {
-        const orderId = cbData.replace('reject_order_', '');
-        if (supabase) { await supabase.from('orders').update({ status: 'rejected' }).eq('id', orderId); await sendTelegramMessage(chatId, '❌ Ордер отклонен.'); }
-        return res.status(200).json({ ok: true });
-      }
+      console.log('>>> Processing CALLBACK_QUERY');
+      return res.status(200).json({ ok: true });
     }
 
+    console.log('>>> Unknown update type:', Object.keys(update).join(', '));
     return res.status(200).json({ ok: true });
   } catch (err: any) {
-    console.error('WEBHOOK ERROR:', err);
+    console.error('!!! WEBHOOK ERROR:', err);
     return res.status(200).json({ error: err.message });
   }
 }
