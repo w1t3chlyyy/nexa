@@ -2,13 +2,20 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+// ══════════════════════════════════════════════════════════════════
+//  ВСЕ ФУНКЦИИ ОПРЕДЕЛЕНЫ ДО ИСПОЛЬЗОВАНИЯ
+// ══════════════════════════════════════════════════════════════════
+
 // ─── Supabase client ─────────────────────────────────────────────
-const getSupabase = (): SupabaseClient | null => {
+function getSupabase(): SupabaseClient | null {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
+  if (!url || !key) {
+    console.error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set');
+    return null;
+  }
   return createClient(url, key);
-};
+}
 
 // ─── Telegram helpers ────────────────────────────────────────────
 async function tgApi(token: string, method: string, body: Record<string, any>): Promise<any> {
@@ -32,7 +39,10 @@ async function sendTelegramMessage(
   options?: { photo?: string; captionEntities?: any[] }
 ) {
   const token = process.env.BOT_TOKEN;
-  if (!token) return;
+  if (!token) {
+    console.error('BOT_TOKEN is not set');
+    return;
+  }
   try {
     if (options?.photo) {
       await tgApi(token, 'sendPhoto', {
@@ -90,7 +100,8 @@ async function getFsmState(supabase: SupabaseClient | null, userId: number): Pro
     const { data, error } = await supabase.from('admin_fsm').select('*').eq('telegram_id', userId).maybeSingle();
     if (error || !data) return { state: { step: 'idle' } };
     return { state: data.state as FsmState };
-  } catch {
+  } catch (err) {
+    console.error('getFsmState error:', err);
     return { state: { step: 'idle' } };
   }
 }
@@ -123,7 +134,8 @@ async function getBotSettings(supabase: SupabaseClient | null): Promise<any> {
     const { data, error } = await supabase.from('bot_settings').select('value').eq('key', 'welcome').maybeSingle();
     if (error || !data) return null;
     return data.value;
-  } catch {
+  } catch (err) {
+    console.error('getBotSettings error:', err);
     return null;
   }
 }
@@ -146,10 +158,9 @@ function isAdmin(userId: number, ownerId: number | null): boolean {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  MAIN HANDLER
+//  MAIN HANDLER - ОПРЕДЕЛЕН ПОСЛЕ ВСЕХ ВСПОМОГАТЕЛЬНЫХ ФУНКЦИЙ
 // ══════════════════════════════════════════════════════════════════
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // ✅ Добавляем логирование для отладки
   console.log('Webhook received, method:', req.method);
   
   if (req.method !== 'POST') {
@@ -162,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true });
   }
 
-  // ✅ Инициализируем supabase внутри handler
+  // ✅ Инициализация Supabase
   const supabase = getSupabase();
   console.log('Supabase initialized:', !!supabase);
   
@@ -645,9 +656,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const keyboard = {
           inline_keyboard: [
             [{ text: 'Открыть обменник USDT', web_app: { url: miniappUrl } }],
-            ...(isOwnerOrAdmin
-              ? [[{ text: '', callback_data: 'admin_menu' }]]
-              : []),
           ],
         };
         await sendTelegramMessage(chatId, `👀 <b>Предпросмотр приветствия:</b>`);
@@ -698,7 +706,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true });
       }
 
-      // Если ни один callback не обработан
       return res.status(200).json({ ok: true });
     }
 
@@ -727,7 +734,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         );
       }
 
-      // Check FSM state for admin dialogs
+      // Check FSM state
       const { state: fsmState } = await getFsmState(supabase, fromUser.id);
 
       // ── FSM: Task create flow ───────────────────────────────
@@ -1000,7 +1007,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  PHOTO MESSAGES (for welcome photo)
+    //  PHOTO MESSAGES
     // ═══════════════════════════════════════════════════════════
     if (update.message?.photo && update.message.photo.length > 0) {
       const msg = update.message;
@@ -1028,7 +1035,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true });
   } catch (err: any) {
     console.error('WEBHOOK ERROR:', err);
-    // ✅ Отправляем ответ даже при ошибке
     return res.status(200).json({ error: err.message });
   }
 }
