@@ -529,8 +529,33 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <ChevronRight className="w-4 h-4 text-zinc-500" />
         </button>
       </div>
+
+      {/* Admin-only shortcut: exchange rates management */}
+      {onOpenAdminPanel && (
+        <div className="pt-2">
+          <button
+            id="btn-profile-open-admin"
+            onClick={() => {
+              sound.playTap();
+              onOpenAdminPanel();
+            }}
+            className="w-full p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 flex items-center justify-between transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold text-white leading-tight">
+                  Админ-панель: курсы обмена
+                </div>
+                <p className="text-[10px] text-zinc-400">Редактирование exchange_rates</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-zinc-500" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };
-
-
