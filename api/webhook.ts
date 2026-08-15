@@ -790,13 +790,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           `💰 Продавайте чеки <b>CryptoBot & Send</b> по максимальному курсу с моментальной выплатой на карту или СБП (0% комиссия).\n\n` +
           `Нажмите кнопку ниже, чтобы открыть обменник:`;
         const keyboard = {
-          inline_keyboard: [
-            [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
-            ...(isOwnerOrAdmin
-              ? [[{ text: '⚙️ Панель управления (/admin)', callback_data: 'admin_menu' }]]
-              : []),
-          ],
-        };
+  inline_keyboard: [
+    [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
+    // Убрана кнопка панели управления
+  ],
+};
         await sendTelegramMessage(chatId, welcomeText, keyboard, {
           photo: settings?.photo,
           captionEntities: settings?.caption_entities,
