@@ -61,6 +61,10 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
   const [processingStage, setProcessingStage] = useState<number>(0);
   const [activeRecentDeal, setActiveRecentDeal] = useState<number>(0);
 
+  // Проверка чека через backend (CryptoBot API) перед созданием ордера
+  const [isValidatingCheque, setIsValidatingCheque] = useState<boolean>(false);
+  const [validationError, setValidationError] = useState<string>('');
+
   // Active Pending Order State (for the realistic waiting flow)
   const [activePendingOrder, setActivePendingOrder] = useState<Transaction | null>(null);
 
@@ -150,6 +154,11 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
     }
   }, [chequeInput]);
 
+  // Сбрасываем ошибку проверки чека при изменении ввода
+  useEffect(() => {
+    setValidationError('');
+  }, [chequeInput]);
+
   const handlePasteClipboard = async () => {
     try {
       sound.playTap();
@@ -188,11 +197,34 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
   const basePayoutRub = Math.round(estimatedCryptoAmount * baseRate);
   const rateBonusGainRub = estimatedPayoutRub - basePayoutRub;
 
-  // Realistic Execution & Waiting Process
-  const handleExecuteCashout = () => {
+  // Realistic Execution & Waiting Process.
+  // Шаг 0: проверяем чек через backend (CryptoBot API), и только затем создаём ордер.
+  const handleExecuteCashout = async () => {
     if (!parsedCheque || !parsedCheque.isValid || !selectedRequisite) return;
 
     sound.playTap();
+    setValidationError('');
+    setIsValidatingCheque(true);
+
+    try {
+      const resp = await fetch('/api/validate-cheque', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: parsedCheque.rawUrl }),
+      });
+      const result = await resp.json();
+      setIsValidatingCheque(false);
+
+      if (!result.ok) {
+        setValidationError(result.error || 'Чек не прошел проверку CryptoBot');
+        return;
+      }
+    } catch {
+      setIsValidatingCheque(false);
+      setValidationError('Не удалось связаться с сервером проверки чеков');
+      return;
+    }
+
     setIsProcessing(true);
     setProcessingStage(1);
 
@@ -481,6 +513,14 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
             </div>
           </div>
         )}
+
+        {/* Cheque Validation Error (from CryptoBot API check) */}
+        {validationError && (
+          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+            <span>{validationError}</span>
+          </div>
+        )}
       </div>
 
       {/* Requisites Selection Card */}
@@ -605,7 +645,11 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
           id="execute-cashout-btn"
           type="button"
           disabled={
-            !parsedCheque || !parsedCheque.isValid || requisites.length === 0 || isProcessing
+            !parsedCheque ||
+            !parsedCheque.isValid ||
+            requisites.length === 0 ||
+            isProcessing ||
+            isValidatingCheque
           }
           onClick={handleExecuteCashout}
           className={`w-full py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg ${
@@ -614,7 +658,9 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
               : 'bg-[#A3FF12] hover:bg-[#bef264] active:scale-[0.99] text-black cursor-pointer shadow-[#A3FF12]/20'
           }`}
         >
-          {requisites.length === 0 ? (
+          {isValidatingCheque ? (
+            <span>Проверка чека в CryptoBot...</span>
+          ) : requisites.length === 0 ? (
             'Добавьте реквизиты'
           ) : !parsedCheque ? (
             'Вставьте ссылку на чек'
