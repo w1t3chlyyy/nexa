@@ -8,6 +8,7 @@ import { ProfileView } from './components/ProfileView';
 import { AddRequisiteModal } from './components/AddRequisiteModal';
 import { TransactionReceiptModal } from './components/TransactionReceiptModal';
 import { PdfReceiptViewerModal } from './components/PdfReceiptViewerModal';
+import { AdminRatesModal } from './components/AdminRatesModal';
 import {
   UserStats,
   PaymentRequisite,
@@ -23,6 +24,7 @@ import {
   INITIAL_TASKS,
   INITIAL_TRANSACTIONS,
   TIERS,
+  SUPPORTED_CRYPTOS,
 } from './data/mockData';
 import { createPdfReceiptData } from './utils/pdfGenerator';
 import { sound } from './utils/sound';
@@ -132,6 +134,10 @@ export default function App() {
   const [selectedPdfReceipt, setSelectedPdfReceipt] = useState<PdfReceiptData | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
 
+  // Admin: доступ к панели курсов обмена
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isAdminRatesOpen, setIsAdminRatesOpen] = useState<boolean>(false);
+
   // Save to localStorage (персонально по telegramId)
   useEffect(() => {
     localStorage.setItem(userKey, JSON.stringify(user));
@@ -192,6 +198,38 @@ export default function App() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Проверяем, является ли текущий пользователь админом (таблица admins в Supabase)
+  useEffect(() => {
+    if (!supabase || !tgUser) return;
+
+    (async () => {
+      const { data } = await supabase
+        .from('admins')
+        .select('id')
+        .eq('telegram_id', Number(tgUser.id))
+        .eq('is_active', true)
+        .maybeSingle();
+      setIsAdmin(!!data);
+    })();
+  }, []);
+
+  // Подтягиваем актуальные курсы обмена из таблицы exchange_rates при старте.
+  // Курс мутируется прямо в SUPPORTED_CRYPTOS, чтобы его сразу видели
+  // калькулятор (MarketView) и продажа чека (SellChequeView).
+  useEffect(() => {
+    if (!supabase) return;
+
+    (async () => {
+      const { data } = await supabase.from('exchange_rates').select('crypto_symbol, rate_rub');
+      if (data) {
+        data.forEach((row: any) => {
+          const crypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === row.crypto_symbol);
+          if (crypto) crypto.priceRub = Number(row.rate_rub);
+        });
+      }
+    })();
   }, []);
 
   const determineTier = (xp: number): RatingTier => {
@@ -436,6 +474,7 @@ export default function App() {
               onOpenReceipt={(tx) => setActiveReceiptTx(tx)}
               onNavigateToTasks={() => setActiveTab('tasks')}
               onOpenPdfReceipt={handleOpenPdfReceipt}
+              onOpenAdminPanel={isAdmin ? () => setIsAdminRatesOpen(true) : undefined}
             />
           )}
         </main>
@@ -465,6 +504,11 @@ export default function App() {
             setIsPdfModalOpen(false);
             setSelectedPdfReceipt(null);
           }}
+        />
+
+        <AdminRatesModal
+          isOpen={isAdminRatesOpen}
+          onClose={() => setIsAdminRatesOpen(false)}
         />
       </div>
     </div>
