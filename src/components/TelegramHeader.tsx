@@ -36,19 +36,7 @@ export const TelegramHeader: React.FC<TelegramHeaderProps> = ({
   return (
     <header id="telegram-header" className="w-full bg-[#141414]/95 backdrop-blur-md border-b border-zinc-800 sticky top-0 z-40 select-none">
       {/* Telegram Status Bar */}
-      <div className="flex items-center justify-between px-4 pt-1.5 pb-1 text-[11px] font-medium text-zinc-400">
-        <div className="flex items-center gap-1.5 font-mono">
-          <span className="text-zinc-200">{time}</span>
-          <span className="text-[10px] px-1 py-0.2 rounded bg-zinc-800 text-[#A3FF12] font-semibold">5G</span>
-        </div>
-        <div className="flex items-center gap-1.5 font-mono text-[10px]">
-          <span className="text-zinc-400">CryptoBot</span>
-          <div className="w-3.5 h-2 rounded-xs border border-zinc-600 p-0.5 flex items-center">
-            <div className="w-2 h-1 bg-[#A3FF12] rounded-xs"></div>
-          </div>
-        </div>
-      </div>
-
+     
       {/* Brand Bar */}
       <div className="px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
