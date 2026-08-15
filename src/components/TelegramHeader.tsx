@@ -97,23 +97,6 @@ export const TelegramHeader: React.FC<TelegramHeaderProps> = ({
           >
             {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-[#A3FF12]" /> : <VolumeX className="w-3.5 h-3.5" />}
           </button>
-
-          <div className="flex items-center bg-zinc-800/90 rounded-lg border border-zinc-700/60 p-0.5">
-            <button
-              id="tg-options-btn"
-              onClick={() => sound.playTap()}
-              className="w-6 h-6 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <MoreVertical className="w-3 h-3" />
-            </button>
-            <button
-              id="tg-close-btn"
-              onClick={() => sound.playTap()}
-              className="w-6 h-6 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
         </div>
       </div>
 
