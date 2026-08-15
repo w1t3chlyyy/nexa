@@ -568,11 +568,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           `👋 <b>Добро пожаловать!</b>\n\n` +
           `💰 Продавайте чеки <b>CryptoBot & Send</b> по максимальному курсу с моментальной выплатой на карту или СБП (0% комиссия).\n\n` +
           `Нажмите кнопку ниже, чтобы открыть обменник:`;
-        const keyboard = {
+       const keyboard = {
           inline_keyboard: [
-            [{ text: ' Открыть обменник USDT', web_app: { url: miniappUrl } }],
+            [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
             ...(isOwnerOrAdmin
-              ? [{} }]
+              ? [[{ text: '', callback_data: 'admin_menu' }]]
               : []),
           ],
         };
