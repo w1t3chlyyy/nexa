@@ -572,7 +572,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           inline_keyboard: [
             [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
             ...(isOwnerOrAdmin
-              ? [[{ text: '⚙️ Панель управления (/admin)', callback_data: 'admin_menu' }]]
+              ? 
               : []),
           ],
         };
