@@ -565,8 +565,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const settings = await getBotSettings(supabase);
         const text =
           settings?.text ||
-          `👋 <b>Добро пожаловать!</b>\n\n` +
-          `💰 Продавайте чеки <b>CryptoBot & Send</b> по максимальному курсу с моментальной выплатой на карту или СБП (0% комиссия).\n\n` +
+          `<b>Добро пожаловать в Nexa</b>\n\n` +
+          `Продавайте криптовалюту по лучшему курсу на рынке. Только чистые деньги.\n\n` +
           `Нажмите кнопку ниже, чтобы открыть обменник:`;
        const keyboard = {
           inline_keyboard: [
