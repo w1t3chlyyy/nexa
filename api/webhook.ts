@@ -1,8 +1,4 @@
-
-import os
-os.makedirs('/mnt/agents/output/api', exist_ok=True)
-
-code = r'''import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -90,37 +86,58 @@ type FsmState =
 
 async function getFsmState(supabase: SupabaseClient | null, userId: number): Promise<{ state: FsmState }> {
   if (!supabase) return { state: { step: 'idle' } };
-  const { data } = await supabase.from('admin_fsm').select('*').eq('telegram_id', userId).single();
-  if (!data) return { state: { step: 'idle' } };
-  return { state: data.state as FsmState };
+  try {
+    const { data, error } = await supabase.from('admin_fsm').select('*').eq('telegram_id', userId).maybeSingle();
+    if (error || !data) return { state: { step: 'idle' } };
+    return { state: data.state as FsmState };
+  } catch {
+    return { state: { step: 'idle' } };
+  }
 }
 
 async function setFsmState(supabase: SupabaseClient | null, userId: number, state: FsmState) {
   if (!supabase) return;
-  await supabase.from('admin_fsm').upsert(
-    { telegram_id: userId, state: state as any, updated_at: new Date().toISOString() },
-    { onConflict: 'telegram_id' }
-  );
+  try {
+    await supabase.from('admin_fsm').upsert(
+      { telegram_id: userId, state: state as any, updated_at: new Date().toISOString() },
+      { onConflict: 'telegram_id' }
+    );
+  } catch (err) {
+    console.error('setFsmState error:', err);
+  }
 }
 
 async function clearFsmState(supabase: SupabaseClient | null, userId: number) {
   if (!supabase) return;
-  await supabase.from('admin_fsm').delete().eq('telegram_id', userId);
+  try {
+    await supabase.from('admin_fsm').delete().eq('telegram_id', userId);
+  } catch (err) {
+    console.error('clearFsmState error:', err);
+  }
 }
 
 // ─── Bot settings helpers (table bot_settings, key='welcome') ──────
 async function getBotSettings(supabase: SupabaseClient | null): Promise<any> {
   if (!supabase) return null;
-  const { data } = await supabase.from('bot_settings').select('value').eq('key', 'welcome').single();
-  return data?.value || null;
+  try {
+    const { data, error } = await supabase.from('bot_settings').select('value').eq('key', 'welcome').maybeSingle();
+    if (error || !data) return null;
+    return data.value;
+  } catch {
+    return null;
+  }
 }
 
 async function setBotSettings(supabase: SupabaseClient | null, value: any) {
   if (!supabase) return;
-  await supabase.from('bot_settings').upsert(
-    { key: 'welcome', value, updated_at: new Date().toISOString() },
-    { onConflict: 'key' }
-  );
+  try {
+    await supabase.from('bot_settings').upsert(
+      { key: 'welcome', value, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+  } catch (err) {
+    console.error('setBotSettings error:', err);
+  }
 }
 
 // ─── Admin check ─────────────────────────────────────────────────
@@ -776,7 +793,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           inline_keyboard: [
             [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
             ...(isOwnerOrAdmin
-              ?
+              ? [[{ text: '⚙️ Панель управления (/admin)', callback_data: 'admin_menu' }]]
               : []),
           ],
         };
@@ -969,9 +986,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ error: err.message });
   }
 }
-'''
-
-with open('/mnt/agents/output/api/webhook.ts', 'w', encoding='utf-8') as f:
-    f.write(code)
-
-print('OK, written', len(code), 'chars')
