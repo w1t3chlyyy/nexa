@@ -18,7 +18,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: webhookUrl,
-        // secret_token ПОЛНОСТЬЮ УБРАН — не передаём вообще
         allowed_updates: ['message', 'callback_query'],
       }),
     });
