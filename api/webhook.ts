@@ -791,7 +791,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           `Нажмите кнопку ниже, чтобы открыть обменник:`;
         const keyboard = {
   inline_keyboard: [
-    [{ text: '🚀 Открыть обменник USDT', web_app: { url: miniappUrl } }],
+    [{ text: ' Открыть обменник USDT', web_app: { url: miniappUrl } }],
     // Убрана кнопка панели управления
   ],
 };
