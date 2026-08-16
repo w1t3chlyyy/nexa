@@ -164,16 +164,13 @@ export interface AdminOrder {
   sbpRef?: string;
 }
 
-export interface ChequeParseResult {
-  rawUrl: string;
-  chequeCode: string;
-  isValid: boolean;
-  cryptoSymbol?: CryptoSymbol;
-  cryptoAmount?: number;
-  creator?: string;
-  expiresIn?: string;
-  passwordProtected?: boolean;
-  errorMessage?: string;
+// Результат РЕАЛЬНОЙ проверки чека через /api/validate-cheque (CryptoBot API).
+// Больше не содержит угаданных данных — только то, что вернул сам CryptoBot.
+export interface ValidatedCheque {
+  code: string;
+  checkId: number;
+  cryptoSymbol: CryptoSymbol;
+  cryptoAmount: number;
 }
 
 export type QuestCategory = 'daily' | 'trade' | 'telegram_sub' | 'milestone';
@@ -214,4 +211,3 @@ export interface CustomAdminChannel {
   addedDate: string;
   activeStatus: 'active' | 'pending' | 'revoked';
 }
-
