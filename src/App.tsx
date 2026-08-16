@@ -95,6 +95,12 @@ function buildInitialUser(): UserStats {
   return INITIAL_USER_STATS;
 }
 
+// Оценка суммы сделки в долларах — используется и для баланса пользователя,
+// и для прогресса заданий, чтобы обе цифры совпадали.
+function amountToUsd(tx: Transaction): number {
+  return tx.cryptoAmount * (tx.cryptoSymbol === 'USDT' ? 1 : 5.6);
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('sell');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -218,6 +224,32 @@ export default function App() {
     })();
   }, []);
 
+  // Синхронизация "накопительных" заданий (milestone) с реальной статистикой
+  // пользователя. Раньше прогресс этих заданий был захардкожен в mockData —
+  // новый аккаунт с 0 сделок видел их уже выполненными. Теперь прогресс
+  // всегда пересчитывается от user.completedDeals / referralsCount / totalVolumeUsd,
+  // а уже забранные (claimed) задания не трогаем повторно.
+  useEffect(() => {
+    setTasks((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.claimed) return t;
+
+        let progress = t.progress;
+        if (t.id === 'task_rating_gold') progress = Math.min(t.maxProgress, user.completedDeals);
+        else if (t.id === 'task_referral_3') progress = Math.min(t.maxProgress, user.referralsCount);
+        else if (t.id === 'task_whale_volume') progress = Math.min(t.maxProgress, user.totalVolumeUsd);
+        else return t;
+
+        const completed = progress >= t.maxProgress;
+        if (progress === t.progress && completed === t.completed) return t;
+        changed = true;
+        return { ...t, progress, completed };
+      });
+      return changed ? next : prev;
+    });
+  }, [user.completedDeals, user.referralsCount, user.totalVolumeUsd]);
+
   const determineTier = (xp: number): RatingTier => {
     if (xp >= (tiers.Diamond?.minXp || 5000)) return 'Diamond';
     if (xp >= (tiers.Platinum?.minXp || 2000)) return 'Platinum';
@@ -336,6 +368,41 @@ export default function App() {
     setIsPdfModalOpen(true);
   };
 
+  // Обновляет прогресс "trade"-заданий по факту реальной сделки.
+  // Раньше эти задания вообще ничем не обновлялись и просто стояли
+  // захардкоженными как выполненные/невыполненные из mockData.
+  const updateTasksAfterTrade = (tx: Transaction) => {
+    const amountUsd = amountToUsd(tx);
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.claimed) return t;
+
+        if (t.id === 'task_daily_trade_1' || t.id === 'task_trade_instant_reward') {
+          return { ...t, progress: t.maxProgress, completed: true };
+        }
+        if (t.id === 'task_daily_volume_100') {
+          const progress = Math.min(t.maxProgress, t.progress + amountUsd);
+          return { ...t, progress, completed: progress >= t.maxProgress };
+        }
+        if (t.id === 'task_trade_streak_3') {
+          const progress = Math.min(t.maxProgress, t.progress + 1);
+          return { ...t, progress, completed: progress >= t.maxProgress };
+        }
+        if (t.id === 'task_trade_big_deal_200' && amountUsd >= 200) {
+          return { ...t, progress: t.maxProgress, completed: true };
+        }
+        if (
+          t.id === 'task_trade_ton_not' &&
+          (tx.cryptoSymbol === 'TON' || tx.cryptoSymbol === 'NOT' || tx.cryptoSymbol === 'DOGS')
+        ) {
+          return { ...t, progress: t.maxProgress, completed: true };
+        }
+        return t;
+      })
+    );
+  };
+
   const handleTransactionSuccess = (tx: Transaction) => {
     const pdfData = createPdfReceiptData(
       `ORD-${tx.id.substring(0, 8)}`,
@@ -350,8 +417,9 @@ export default function App() {
 
     const txWithPdf: Transaction = { ...tx, pdfReceipt: pdfData };
     setTransactions((prev) => [txWithPdf, ...prev]);
+    updateTasksAfterTrade(tx);
 
-    // Заявка уходит в Supabase → оператор увидит её в самом боте через /orders или /admin
+    // Заявка уходит в Supabase → оператор увидит её в самом боте через /admin → «Новые заявки»
     if (supabase && tgUser) {
       supabase.from('orders').insert({
         order_number: `ORD-${tx.id.substring(0, 8)}`,
@@ -379,7 +447,7 @@ export default function App() {
         tier: nextTier,
         completedDeals: prev.completedDeals + 1,
         totalVolumeRub: prev.totalVolumeRub + tx.fiatAmount,
-        totalVolumeUsd: prev.totalVolumeUsd + tx.cryptoAmount * (tx.cryptoSymbol === 'USDT' ? 1 : 5.6),
+        totalVolumeUsd: prev.totalVolumeUsd + amountToUsd(tx),
       };
 
       if (supabase && tgUser) {
