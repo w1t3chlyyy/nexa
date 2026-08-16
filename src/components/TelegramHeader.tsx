@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Sparkles, Volume2, VolumeX, Star, MoreVertical, X, Bot, Lock } from 'lucide-react';
+import { Volume2, VolumeX, Bot } from 'lucide-react';
 import { UserStats, TierInfo } from '../types';
 import { sound } from '../utils/sound';
 import { CryptoNexaLogo } from './CryptoNexaLogo';
@@ -21,59 +21,30 @@ export const TelegramHeader: React.FC<TelegramHeaderProps> = ({
   onOpenProfile,
   onOpenTelegramBot,
 }) => {
-  const [time, setTime] = React.useState('18:45');
-
-  React.useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
-    <header id="telegram-header" className="w-full bg-[#141414]/95 backdrop-blur-md border-b border-zinc-800 sticky top-0 z-40 select-none">
-      {/* Telegram Status Bar */}
-     
-      {/* Brand Bar */}
-      <div className="px-4 py-2 flex items-center justify-between">
+    <header id="telegram-header" className="w-full bg-[#0A0A0B]/95 backdrop-blur-md border-b border-zinc-900 sticky top-0 z-40 select-none">
+      <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <CryptoNexaLogo className="w-8 h-8" rounded="rounded-xl" />
-
+          <CryptoNexaLogo className="w-7 h-7" rounded="rounded-lg" />
           <div>
-            <div className="flex items-center gap-1.5">
-              <h1 className="text-sm font-black tracking-tight text-white uppercase font-mono">
-                Crypto<span className="text-[#A3FF12]">Nexa</span>
-              </h1>
-              <span className="text-[9px] font-bold bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded uppercase">
-                TMA
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#A3FF12]"></span>
-              Быстрый обмен USDT
-            </p>
+            <h1 className="text-sm font-semibold text-white">CryptoNexa</h1>
+            <p className="text-[11px] text-zinc-500">Обмен USDT · СБП</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* Quick Bot shortcut */}
+        <div className="flex items-center gap-1">
           {onOpenTelegramBot && (
             <button
-              id="header-open-bot-btn"
               onClick={() => {
                 sound.playTap();
                 onOpenTelegramBot();
               }}
-              title="Открыть чат с ботом в Telegram"
-              className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[#A3FF12] border border-zinc-700/60 flex items-center justify-center transition-colors cursor-pointer"
+              title="Открыть чат с ботом"
+              className="w-8 h-8 rounded-lg text-zinc-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
             >
-              <Bot className="w-3.5 h-3.5" />
+              <Bot className="w-4 h-4" />
             </button>
           )}
-
           <button
             id="sound-toggle-btn"
             onClick={() => {
@@ -81,64 +52,39 @@ export const TelegramHeader: React.FC<TelegramHeaderProps> = ({
               onToggleSound();
             }}
             title={soundEnabled ? 'Звук включен' : 'Звук выключен'}
-            className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-[#A3FF12] border border-zinc-700/60 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-lg text-zinc-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
           >
-            {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-[#A3FF12]" /> : <VolumeX className="w-3.5 h-3.5" />}
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
-      {/* User Status Bar */}
-      <div className="px-4 pb-2">
-        <div
+      <div className="px-4 pb-3">
+        <button
           onClick={() => {
             sound.playTap();
             onOpenProfile();
           }}
-          className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/90 hover:bg-zinc-800/80 border border-zinc-800 transition-all cursor-pointer group"
+          className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#141415] hover:bg-zinc-900 border border-zinc-800/70 transition-colors cursor-pointer"
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full border border-[#A3FF12]/70 p-0.5 flex-shrink-0 relative">
-              <img
-                src={user.avatarUrl}
-                alt={user.fullName}
-                referrerPolicy="no-referrer"
-                className="w-full h-full rounded-full object-cover"
-              />
-              {user.isPremium && (
-                <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-black border border-[#A3FF12] rounded-full flex items-center justify-center">
-                  <Star className="w-1.5 h-1.5 text-[#A3FF12] fill-[#A3FF12]" />
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-bold text-white truncate group-hover:text-[#A3FF12] transition-colors">
-                  @{user.username}
-                </span>
-                {user.isVerified && (
-                  <ShieldCheck className="w-3 h-3 text-[#A3FF12] flex-shrink-0" />
-                )}
-              </div>
-              <p className="text-[10px] text-zinc-400">
-                {tier.title}
-              </p>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img
+              src={user.avatarUrl}
+              alt={user.fullName}
+              referrerPolicy="no-referrer"
+              className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+            />
+            <div className="min-w-0 text-left">
+              <div className="text-xs font-medium text-white truncate">@{user.username}</div>
+              <p className="text-[11px] text-zinc-500">{tier.title}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-zinc-950 border border-zinc-800 text-[11px] font-mono">
-              <ShieldCheck className="w-3 h-3 text-[#A3FF12]" />
-              <span className="font-bold text-white">{user.completedDeals}</span>
-            </div>
-
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-[#1E2514] border border-[#A3FF12]/30 text-[#A3FF12] text-[11px] font-bold">
-              <Sparkles className="w-2.5 h-2.5" />
-              <span>+{tier.rateBonus}%</span>
-            </div>
+          <div className="flex items-center gap-2 text-xs font-mono flex-shrink-0">
+            <span className="text-zinc-500">{user.completedDeals} сделок</span>
+            <span className="text-[#A3FF12]">+{tier.rateBonus}%</span>
           </div>
-        </div>
+        </button>
       </div>
     </header>
   );
