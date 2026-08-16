@@ -30,7 +30,6 @@ import { createPdfReceiptData } from './utils/pdfGenerator';
 import { sound } from './utils/sound';
 import { getTelegramUser } from './utils/telegram';
 import { supabase } from './lib/supabase';
-import { Smartphone } from 'lucide-react';
 
 // Определяем пользователя Telegram один раз при загрузке приложения.
 // Внутри Telegram (Mini App) здесь будут реальные id/username/фото.
@@ -41,7 +40,6 @@ const reqKey = tgUser ? `cryptobot_requisites_${tgUser.id}` : 'cryptobot_requisi
 const taskKey = tgUser ? `cryptobot_tasks_${tgUser.id}` : 'cryptobot_tasks';
 const txKey = tgUser ? `cryptobot_transactions_${tgUser.id}` : 'cryptobot_transactions';
 
-// Добавьте ПЕРЕД функцией buildInitialUser():
 const EMPTY_USER_STATS: UserStats = {
   telegramId: '0',
   username: 'user',
@@ -64,12 +62,10 @@ const EMPTY_USER_STATS: UserStats = {
   streakClaimedToday: false,
 };
 
-// Замените функцию buildInitialUser() полностью:
 function buildInitialUser(): UserStats {
   const saved = localStorage.getItem(userKey);
 
   if (saved) {
-    // Пользователь уже открывал приложение — берём его прогресс
     const base: UserStats = JSON.parse(saved);
     if (tgUser) {
       return {
@@ -84,9 +80,7 @@ function buildInitialUser(): UserStats {
     return base;
   }
 
-  // Нет сохранённых данных = новый пользователь
   if (tgUser) {
-    // В Telegram Mini App — чистый профиль с нуля
     return {
       ...EMPTY_USER_STATS,
       telegramId: tgUser.id,
@@ -98,7 +92,6 @@ function buildInitialUser(): UserStats {
     };
   }
 
-  // Вне Telegram (обычный браузер) — demo-режим
   return INITIAL_USER_STATS;
 }
 
@@ -128,17 +121,14 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
   });
 
-  // Modals state
   const [isAddRequisiteOpen, setIsAddRequisiteOpen] = useState<boolean>(false);
   const [activeReceiptTx, setActiveReceiptTx] = useState<Transaction | null>(null);
   const [selectedPdfReceipt, setSelectedPdfReceipt] = useState<PdfReceiptData | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
 
-  // Admin: доступ к панели курсов обмена
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isAdminRatesOpen, setIsAdminRatesOpen] = useState<boolean>(false);
 
-  // Save to localStorage (персонально по telegramId)
   useEffect(() => {
     localStorage.setItem(userKey, JSON.stringify(user));
   }, [user]);
@@ -160,8 +150,6 @@ export default function App() {
   }, [transactions]);
 
   // Синхронизация профиля с Supabase при первом открытии.
-  // Если пользователь уже есть в базе — подтягиваем его реальный прогресс (xp, ранг, обороты).
-  // Если нет — создаём запись.
   useEffect(() => {
     if (!supabase || !tgUser) return;
 
@@ -216,8 +204,6 @@ export default function App() {
   }, []);
 
   // Подтягиваем актуальные курсы обмена из таблицы exchange_rates при старте.
-  // Курс мутируется прямо в SUPPORTED_CRYPTOS, чтобы его сразу видели
-  // калькулятор (MarketView) и продажа чека (SellChequeView).
   useEffect(() => {
     if (!supabase) return;
 
@@ -416,15 +402,8 @@ export default function App() {
   const unclaimedTasksCount = tasks.filter((t) => t.completed && !t.claimed).length;
 
   return (
-    <div className="min-h-screen bg-[#070708] text-white flex flex-col items-center justify-start font-sans antialiased selection:bg-[#A3FF12] selection:text-black">
-      <div className="w-full max-w-md px-3 pt-2 pb-1 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-1.5 text-zinc-400">
-          <Smartphone className="w-3.5 h-3.5 text-[#A3FF12]" />
-          <span className="text-[11px] font-semibold text-zinc-200">Telegram Mini App</span>
-        </div>
-      </div>
-
-      <div className="w-full max-w-md min-h-screen bg-[#0F0F0F] flex flex-col relative border-x border-zinc-800 shadow-2xl">
+    <div className="min-h-screen bg-[#0A0A0B] text-white flex items-start justify-center antialiased">
+      <div className="w-full max-w-md min-h-screen bg-[#0A0A0B] flex flex-col relative">
         <TelegramHeader
           user={user}
           tier={currentTierInfo}
@@ -433,7 +412,7 @@ export default function App() {
           onOpenProfile={() => setActiveTab('profile')}
         />
 
-        <main className="flex-1 px-4 pt-3 pb-24 overflow-y-auto">
+        <main className="flex-1 px-4 pt-4 pb-24 overflow-y-auto">
           {activeTab === 'sell' && (
             <SellChequeView
               user={user}
