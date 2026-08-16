@@ -658,39 +658,6 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
   },
 ];
 
-export const DEMO_CHEQUES = [
-  {
-    label: '50 USDT (+0.3%)',
-    code: 'http://t.me/CryptoBot?start=CQ81aFk99201a',
-    symbol: 'USDT' as const,
-    amount: 50,
-  },
-  {
-    label: '150 USDT (+0.3%)',
-    code: 'https://t.me/send?start=CQ449xK12903m',
-    symbol: 'USDT' as const,
-    amount: 150,
-  },
-  {
-    label: '300 USDT (Опт +0.7%)',
-    code: 't.me/CryptoBot?start=CQ007vIp8847x',
-    symbol: 'USDT' as const,
-    amount: 300,
-  },
-  {
-    label: '1,000 USDT (VIP +1.2%)',
-    code: 'CQ331usdt998822k',
-    symbol: 'USDT' as const,
-    amount: 1000,
-  },
-  {
-    label: '2,500 USDT (Кит +1.8%)',
-    code: 'CQ992whale88411',
-    symbol: 'USDT' as const,
-    amount: 2500,
-  },
-];
-
 export const INITIAL_ADMINS: AdminUser[] = [
   {
     id: 'adm_owner',
@@ -744,4 +711,3 @@ export const INITIAL_ADMIN_ORDERS: AdminOrder[] = [
     status: 'new',
   },
 ];
-
