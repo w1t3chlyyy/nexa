@@ -48,7 +48,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(502).json({ ok: false, error: data.error?.name || 'Ошибка CryptoBot API' });
     }
 
-   const checks: CryptoBotCheck[] = data.result?.items || data.result || [];
+    // CryptoBot оборачивает списки в пагинацию: { result: { items: [...], count } }.
+    // На всякий случай поддерживаем и старый плоский формат { result: [...] }.
+    const checks: CryptoBotCheck[] = data.result?.items || data.result || [];
+
     const found = checks.find(
       (c) => c.hash === extracted || c.bot_check_url?.includes(extracted)
     );
