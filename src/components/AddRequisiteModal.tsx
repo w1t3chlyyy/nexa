@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, CreditCard, Smartphone, ShieldCheck, Sparkles } from 'lucide-react';
+import { X, Check, Smartphone, CreditCard } from 'lucide-react';
 import { PaymentRequisite, BankInfo } from '../types';
 import { POPULAR_BANKS } from '../data/mockData';
 import { sound } from '../utils/sound';
@@ -17,24 +17,12 @@ export const AddRequisiteModal: React.FC<AddRequisiteModalProps> = ({
   onSave,
   initialData,
 }) => {
-  const [selectedBankId, setSelectedBankId] = useState<string>(
-    initialData?.bankId || POPULAR_BANKS[0].id
-  );
-  const [paymentType, setPaymentType] = useState<'sbp' | 'card' | 'yoomoney' | 'kaspi'>(
-    initialData?.type || 'sbp'
-  );
-  const [accountNumber, setAccountNumber] = useState<string>(
-    initialData?.accountNumber || ''
-  );
-  const [recipientName, setRecipientName] = useState<string>(
-    initialData?.recipientName || ''
-  );
-  const [title, setTitle] = useState<string>(
-    initialData?.title || ''
-  );
-  const [isDefault, setIsDefault] = useState<boolean>(
-    initialData?.isDefault ?? true
-  );
+  const [selectedBankId, setSelectedBankId] = useState<string>(initialData?.bankId || POPULAR_BANKS[0].id);
+  const [paymentType, setPaymentType] = useState<'sbp' | 'card' | 'yoomoney' | 'kaspi'>(initialData?.type || 'sbp');
+  const [accountNumber, setAccountNumber] = useState<string>(initialData?.accountNumber || '');
+  const [recipientName, setRecipientName] = useState<string>(initialData?.recipientName || '');
+  const [title, setTitle] = useState<string>(initialData?.title || '');
+  const [isDefault, setIsDefault] = useState<boolean>(initialData?.isDefault ?? true);
   const [error, setError] = useState<string>('');
 
   if (!isOpen) return null;
@@ -45,9 +33,7 @@ export const AddRequisiteModal: React.FC<AddRequisiteModalProps> = ({
     sound.playTap();
     setSelectedBankId(bank.id);
     setPaymentType(bank.type);
-    if (!title || title.startsWith('Мой') || title.startsWith('Карта')) {
-      setTitle(`${bank.shortName} (${bank.type === 'sbp' ? 'СБП' : 'Карта'})`);
-    }
+    if (!title) setTitle(bank.shortName);
   };
 
   const handlePhoneFormat = (val: string) => {
@@ -58,9 +44,7 @@ export const AddRequisiteModal: React.FC<AddRequisiteModalProps> = ({
     }
     let formatted = '+7 ';
     let d = digits;
-    if (d.startsWith('7') || d.startsWith('8')) {
-      d = d.substring(1);
-    }
+    if (d.startsWith('7') || d.startsWith('8')) d = d.substring(1);
     if (d.length > 0) formatted += `(${d.substring(0, 3)}`;
     if (d.length >= 3) formatted += `) ${d.substring(3, 6)}`;
     if (d.length >= 6) formatted += `-${d.substring(6, 8)}`;
@@ -71,25 +55,23 @@ export const AddRequisiteModal: React.FC<AddRequisiteModalProps> = ({
   const handleCardFormat = (val: string) => {
     const digits = val.replace(/\D/g, '').substring(0, 16);
     const parts = [];
-    for (let i = 0; i < digits.length; i += 4) {
-      parts.push(digits.substring(i, i + 4));
-    }
+    for (let i = 0; i < digits.length; i += 4) parts.push(digits.substring(i, i + 4));
     setAccountNumber(parts.join(' '));
   };
 
   const handleSave = () => {
     if (!accountNumber.trim()) {
-      setError('Пожалуйста, укажите номер телефона СБП или номер карты');
+      setError('Укажите номер СБП или карты');
       return;
     }
     if (!recipientName.trim()) {
-      setError('Укажите имя и первую букву фамилии получателя (например, Алексей В.)');
+      setError('Укажите имя получателя');
       return;
     }
 
     sound.playSuccess();
     onSave({
-      title: title.trim() || `${currentBank.shortName}`,
+      title: title.trim() || currentBank.shortName,
       bankId: currentBank.id,
       bankName: currentBank.name,
       type: paymentType,
@@ -102,52 +84,28 @@ export const AddRequisiteModal: React.FC<AddRequisiteModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-xs">
-      <div
-        id="add-requisite-modal"
-        className="w-full max-w-md bg-[#181818] border border-zinc-800 rounded-t-3xl sm:rounded-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
-      >
-        {/* Modal Header */}
-        <div className="p-3.5 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/60">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#1E2514] border border-[#A3FF12]/40 flex items-center justify-center text-[#A3FF12]">
-              <CreditCard className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <h2 className="text-xs font-bold text-white">
-                {initialData ? 'Редактировать реквизиты' : 'Добавить реквизиты'}
-              </h2>
-              <p className="text-[10px] text-zinc-400">Для выплат СБП при продаже</p>
-            </div>
-          </div>
-
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
+      <div className="w-full max-w-md bg-[#141415] border border-zinc-800 rounded-t-2xl sm:rounded-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-white">
+            {initialData ? 'Редактировать реквизит' : 'Добавить реквизит'}
+          </h2>
           <button
-            id="close-req-modal-btn"
             onClick={() => {
               sound.playTap();
               onClose();
             }}
-            className="w-6 h-6 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="w-7 h-7 rounded-lg text-zinc-500 hover:text-white flex items-center justify-center cursor-pointer"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-3.5 space-y-3 overflow-y-auto max-h-[calc(85vh-120px)]">
-          {error && (
-            <div className="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-              {error}
-            </div>
-          )}
+        <div className="p-4 space-y-4 overflow-y-auto">
+          {error && <div className="text-xs text-rose-400">{error}</div>}
 
-          {/* Select Bank */}
           <div>
-            <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center justify-between">
-              <span>Выберите банк</span>
-              <span className="text-[10px] text-[#A3FF12] font-mono">СБП 0%</span>
-            </label>
+            <label className="block text-xs text-zinc-500 mb-1.5">Банк</label>
             <div className="grid grid-cols-3 gap-1.5">
               {POPULAR_BANKS.map((bank) => {
                 const isSelected = selectedBankId === bank.id;
@@ -156,162 +114,96 @@ export const AddRequisiteModal: React.FC<AddRequisiteModalProps> = ({
                     key={bank.id}
                     type="button"
                     onClick={() => handleBankSelect(bank)}
-                    className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                      isSelected
-                        ? 'bg-[#1E2514] border-[#A3FF12]/80 text-[#A3FF12]'
-                        : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-colors ${
+                      isSelected ? 'border-zinc-500 bg-black/30' : 'border-zinc-800 hover:border-zinc-700'
                     }`}
                   >
-                    <div className="flex items-center justify-between w-full mb-1">
-                      <span
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: bank.color }}
-                      ></span>
-                      {isSelected && <Check className="w-3 h-3 text-[#A3FF12]" />}
-                    </div>
-                    <span className="text-xs font-bold text-white leading-tight">
-                      {bank.shortName}
-                    </span>
-                    <span className="text-[9px] text-zinc-400 mt-0.5">
-                      {bank.type === 'sbp' ? 'СБП' : 'Карта'}
-                    </span>
+                    <span className="text-xs text-white leading-tight block">{bank.shortName}</span>
+                    <span className="text-[10px] text-zinc-500">{bank.type === 'sbp' ? 'СБП' : 'Карта'}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Account / Phone Number */}
           <div>
-            <label className="block text-xs font-bold text-zinc-300 mb-1 flex items-center justify-between">
-              <span>
-                {paymentType === 'sbp'
-                  ? 'Номер телефона (СБП)'
-                  : paymentType === 'card'
-                  ? 'Номер карты'
-                  : 'Номер счета'}
-              </span>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                {paymentType === 'sbp' ? '+7 (XXX) XXX-XX-XX' : '16 цифр'}
-              </span>
+            <label className="block text-xs text-zinc-500 mb-1.5">
+              {paymentType === 'sbp' ? 'Номер телефона (СБП)' : 'Номер карты'}
             </label>
-
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
-                {paymentType === 'sbp' ? (
-                  <Smartphone className="w-3.5 h-3.5 text-[#A3FF12]" />
-                ) : (
-                  <CreditCard className="w-3.5 h-3.5 text-[#A3FF12]" />
-                )}
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center text-zinc-600">
+                {paymentType === 'sbp' ? <Smartphone className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
               </div>
               <input
-                id="req-account-number-input"
                 type="text"
                 value={accountNumber}
                 onChange={(e) => {
                   setError('');
-                  if (paymentType === 'sbp') {
-                    handlePhoneFormat(e.target.value);
-                  } else if (paymentType === 'card') {
-                    handleCardFormat(e.target.value);
-                  } else {
-                    setAccountNumber(e.target.value);
-                  }
+                  if (paymentType === 'sbp') handlePhoneFormat(e.target.value);
+                  else if (paymentType === 'card') handleCardFormat(e.target.value);
+                  else setAccountNumber(e.target.value);
                 }}
-                placeholder={
-                  paymentType === 'sbp'
-                    ? '+7 (999) 000-00-00'
-                    : '2200 0000 0000 0000'
-                }
-                className="w-full bg-zinc-900 border border-zinc-700 focus:border-[#A3FF12] rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none transition-all font-mono font-bold"
+                placeholder={paymentType === 'sbp' ? '+7 (999) 000-00-00' : '2200 0000 0000 0000'}
+                className="w-full bg-black/30 border border-zinc-800 focus:border-zinc-600 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white placeholder-zinc-600 outline-none font-mono transition-colors"
               />
             </div>
           </div>
 
-          {/* Recipient Full Name */}
           <div>
-            <label className="block text-xs font-bold text-zinc-300 mb-1">
-              Имя получателя
-            </label>
+            <label className="block text-xs text-zinc-500 mb-1.5">Имя получателя</label>
             <input
-              id="req-recipient-name-input"
               type="text"
               value={recipientName}
               onChange={(e) => {
                 setError('');
                 setRecipientName(e.target.value);
               }}
-              placeholder="Например: Алексей В."
-              className="w-full bg-zinc-900 border border-zinc-700 focus:border-[#A3FF12] rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none transition-all"
+              placeholder="Алексей В."
+              className="w-full bg-black/30 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-600 outline-none transition-colors"
             />
           </div>
 
-          {/* Friendly Title */}
           <div>
-            <label className="block text-xs font-bold text-zinc-300 mb-1">
-              Название
-            </label>
+            <label className="block text-xs text-zinc-500 mb-1.5">Название</label>
             <input
-              id="req-title-input"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Например: Основной Т-Банк"
-              className="w-full bg-zinc-900 border border-zinc-700 focus:border-[#A3FF12] rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none transition-all"
+              placeholder="Основной Т-Банк"
+              className="w-full bg-black/30 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-600 outline-none transition-colors"
             />
           </div>
 
-          {/* Is Default Toggle */}
-          <div className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-900 border border-zinc-800">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-[#A3FF12]" />
-              <div>
-                <div className="text-xs font-bold text-white">Основной реквизит</div>
-                <div className="text-[10px] text-zinc-400">
-                  По умолчанию при продаже
-                </div>
-              </div>
+          <button
+            type="button"
+            onClick={() => {
+              sound.playTap();
+              setIsDefault(!isDefault);
+            }}
+            className="w-full flex items-center justify-between p-3 rounded-xl bg-black/30 border border-zinc-800 cursor-pointer"
+          >
+            <span className="text-xs text-zinc-300">Использовать по умолчанию</span>
+            <div className={`w-8 h-4.5 flex items-center rounded-full p-0.5 transition-colors ${isDefault ? 'bg-[#A3FF12]' : 'bg-zinc-800'}`}>
+              <div className={`bg-black w-3.5 h-3.5 rounded-full transform transition-transform ${isDefault ? 'translate-x-3.5' : 'translate-x-0'}`} />
             </div>
-            <button
-              id="req-is-default-toggle"
-              type="button"
-              onClick={() => {
-                sound.playTap();
-                setIsDefault(!isDefault);
-              }}
-              className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${
-                isDefault ? 'bg-[#A3FF12]' : 'bg-zinc-800'
-              }`}
-            >
-              <div
-                className={`bg-black w-4 h-4 rounded-full shadow-xs transform transition-transform ${
-                  isDefault ? 'translate-x-4' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
+          </button>
         </div>
 
-        {/* Modal Footer */}
-        <div className="p-3 border-t border-zinc-800 bg-zinc-900 flex gap-2">
+        <div className="p-4 border-t border-zinc-800 flex gap-2">
           <button
-            id="cancel-req-btn"
-            type="button"
             onClick={() => {
               sound.playTap();
               onClose();
             }}
-            className="flex-1 py-1.5 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 transition-colors cursor-pointer"
+            className="flex-1 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-sm text-zinc-300 cursor-pointer transition-colors"
           >
             Отмена
           </button>
           <button
-            id="save-req-btn"
-            type="button"
             onClick={handleSave}
-            className="flex-1 py-1.5 px-3 rounded-lg bg-[#A3FF12] hover:bg-[#b2ff33] text-black text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+            className="flex-1 py-2.5 rounded-xl bg-[#A3FF12] hover:bg-[#b2ff33] text-sm font-medium text-black flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
           >
-            <ShieldCheck className="w-3.5 h-3.5" />
+            <Check className="w-3.5 h-3.5" />
             <span>Сохранить</span>
           </button>
         </div>
