@@ -17,6 +17,10 @@ function extractCode(raw: string): string {
   return parts[parts.length - 1];
 }
 
+// ВАЖНО: публичный Crypto Pay API CryptoBot не умеет проверять ЛЮБОЙ чужой чек
+// по коду. Метод getChecks возвращает только чеки, созданные ВАШИМ ЖЕ
+// приложением CryptoBot. Поэтому эта проверка реально работает только для
+// чеков, выпущенных через ваш собственный аккаунт CryptoBot.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
