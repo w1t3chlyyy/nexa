@@ -165,44 +165,7 @@ export const POPULAR_BANKS: BankInfo[] = [
   },
 ];
 
-export const INITIAL_REQUISITES: PaymentRequisite[] = [
-  {
-    id: 'req_1',
-    title: 'Мой Сбер СБП (Основной)',
-    bankId: 'sber_sbp',
-    bankName: 'Сбербанк (СБП)',
-    type: 'sbp',
-    accountNumber: '+7 (999) 456-78-90',
-    recipientName: 'Алексей В.',
-    isDefault: true,
-    color: '#21a038',
-    createdAt: '12.08.2026',
-  },
-  {
-    id: 'req_2',
-    title: 'Т-Банк Black',
-    bankId: 'tinkoff_card',
-    bankName: 'Т-Банк (Карта)',
-    type: 'card',
-    accountNumber: '2200 7001 8492 4192',
-    recipientName: 'Алексей В.',
-    isDefault: false,
-    color: '#ffdd2d',
-    createdAt: '08.08.2026',
-  },
-  {
-    id: 'req_3',
-    title: 'Альфа СБП для крупных сумм',
-    bankId: 'alfa_sbp',
-    bankName: 'Альфа-Банк (СБП)',
-    type: 'sbp',
-    accountNumber: '+7 (999) 456-78-90',
-    recipientName: 'Алексей В.',
-    isDefault: false,
-    color: '#ef3124',
-    createdAt: '01.08.2026',
-  },
-];
+export const INITIAL_REQUISITES: PaymentRequisite[] = [];
 
 export const TIERS: Record<string, TierInfo> = {
   Bronze: {
@@ -285,6 +248,9 @@ export const TIERS: Record<string, TierInfo> = {
   },
 };
 
+// Демо-профиль используется ТОЛЬКО когда приложение открыто вне Telegram
+// (обычный браузер, для разработки). Реальные пользователи Telegram
+// всегда стартуют с нулевой статистики — см. EMPTY_USER_STATS в App.tsx.
 export const INITIAL_USER_STATS: UserStats = {
   id: 'usr_849201948',
   telegramId: '849201948',
@@ -312,29 +278,17 @@ export const INITIAL_USER_STATS: UserStats = {
   dailyDealsCount: 2,
 };
 
-// Задания разделены на:
-// 1. Ежедневные (daily)
-// 2. После каждого обмена (trade)
-// 3. Подписка на Telegram каналы с проверкой через бота-админа (telegram_sub)
-// 4. Накопительные вехи (milestone)
+// ЗАДАНИЯ — стартовое состояние ВСЕГДА "не выполнено".
+// Прогресс "trade"-заданий обновляется в App.tsx при реальной продаже чека
+// (handleTransactionSuccess). Прогресс "milestone"-заданий синхронизируется
+// с реальной статистикой пользователя (completedDeals, referralsCount,
+// totalVolumeUsd) на каждом рендере App.tsx, а не хранится захардкоженным.
+//
+// Задание про ежедневный стрик намеренно убрано отсюда: та же награда уже
+// выдаётся через карточку "Ежедневный вход" (onClaimDailyStreak) — если
+// оставить оба, пользователь мог получить бонус дважды за один день.
 export const INITIAL_TASKS: QuestTask[] = [
   // 1. ЕЖЕДНЕВНЫЕ ЗАДАНИЯ
-  {
-    id: 'task_daily_streak',
-    title: 'Ежедневный Стрик Селлера',
-    description: 'Заходите каждый день и получайте прогрессивный бонус к курсу и XP.',
-    category: 'daily',
-    rewardXp: 30,
-    rewardUsdt: 0.5,
-    progress: 4,
-    maxProgress: 7,
-    unit: 'дней',
-    completed: false,
-    claimed: false,
-    iconName: 'Flame',
-    actionText: 'Забрать награду дня',
-    badge: 'Стрик 4x',
-  },
   {
     id: 'task_daily_trade_1',
     title: 'Ежедневный обмен чека',
@@ -342,14 +296,13 @@ export const INITIAL_TASKS: QuestTask[] = [
     category: 'daily',
     rewardXp: 50,
     rewardUsdt: 0.3,
-    progress: 1,
+    progress: 0,
     maxProgress: 1,
     unit: 'чек',
-    completed: true,
+    completed: false,
     claimed: false,
     iconName: 'RefreshCw',
-    actionText: 'Забрать бонус',
-    badge: 'Сегодня',
+    actionText: 'Продать чек',
   },
   {
     id: 'task_daily_volume_100',
@@ -358,64 +311,60 @@ export const INITIAL_TASKS: QuestTask[] = [
     category: 'daily',
     rewardXp: 90,
     rewardUsdt: 1.0,
-    progress: 75,
+    progress: 0,
     maxProgress: 100,
     unit: '$',
     completed: false,
     claimed: false,
     iconName: 'Coins',
     actionText: 'Продать чек',
-    badge: 'Дневной $100',
   },
 
-  // 2. ЗАДАНИЯ ПОСЛЕ КАЖДОГО ОБМЕНА И НАГРАДЫ ЗА СДЕЛКИ
+  // 2. ЗАДАНИЯ ПОСЛЕ ОБМЕНА
   {
     id: 'task_trade_instant_reward',
-    title: 'Бонус за следующий обмен',
-    description: 'За каждый успешный обмен чека вы мгновенно получаете XP и кэшбэк USDT на баланс.',
+    title: 'Бонус за первый обмен',
+    description: 'За первый успешный обмен чека вы получаете XP и кэшбэк USDT на баланс.',
     category: 'trade',
     rewardXp: 40,
     rewardCashbackBonus: 0.45,
-    progress: 1,
+    progress: 0,
     maxProgress: 1,
     unit: 'сделка',
-    completed: true,
+    completed: false,
     claimed: false,
     iconName: 'Zap',
-    actionText: 'Забрать +40 XP',
-    badge: 'За каждый обмен',
+    actionText: 'Совершить обмен',
   },
   {
     id: 'task_trade_streak_3',
     title: 'Серия из 3 обменов',
-    description: 'Проведите 3 успешных обмена чеков подряд без отмен.',
+    description: 'Проведите 3 успешных обмена чеков.',
     category: 'trade',
     rewardXp: 120,
     rewardUsdt: 1.5,
-    progress: 2,
+    progress: 0,
     maxProgress: 3,
     unit: 'сделки',
     completed: false,
     claimed: false,
     iconName: 'TrendingUp',
     actionText: 'Совершить обмен',
-    badge: 'Серия 2/3',
   },
   {
     id: 'task_trade_big_deal_200',
     title: 'Крупная сделка от $200',
-    description: 'Активируйте и продайте один чек на сумму от $200 (активирует оптовый курс +0.7%).',
+    description: 'Продайте один чек на сумму от $200 (активирует оптовый курс +0.7%).',
     category: 'trade',
     rewardXp: 180,
     rewardUsdt: 3.0,
-    progress: 200,
+    progress: 0,
     maxProgress: 200,
     unit: '$',
-    completed: true,
+    completed: false,
     claimed: false,
     iconName: 'Award',
-    actionText: 'Забрать $3.00',
-    badge: 'Оптовик',
+    actionText: 'Продать чек',
   },
   {
     id: 'task_trade_ton_not',
@@ -424,17 +373,16 @@ export const INITIAL_TASKS: QuestTask[] = [
     category: 'trade',
     rewardXp: 100,
     rewardUsdt: 1.0,
-    progress: 1,
+    progress: 0,
     maxProgress: 1,
     unit: 'сделка',
-    completed: true,
-    claimed: true,
+    completed: false,
+    claimed: false,
     iconName: 'Zap',
-    actionText: 'Получено',
-    badge: 'TON Буст',
+    actionText: 'Продать чек',
   },
 
-  // 3. ЗАДАНИЯ НА ПОДПИСКУ НА TELEGRAM КАНАЛЫ (С ПРОВЕРКОЙ ЧЕРЕЗ БОТА-АДМИНИСТРАТОРА)
+  // 3. ЗАДАНИЯ НА ПОДПИСКУ НА TELEGRAM КАНАЛЫ
   {
     id: 'task_tg_sub_news',
     title: 'Подписка на CryptoEx Новости',
@@ -452,7 +400,6 @@ export const INITIAL_TASKS: QuestTask[] = [
     claimed: false,
     iconName: 'Send',
     actionText: 'Проверить подписку',
-    badge: 'Бот-проверка',
     isChannelSub: true,
   },
   {
@@ -472,7 +419,6 @@ export const INITIAL_TASKS: QuestTask[] = [
     claimed: false,
     iconName: 'MessageSquare',
     actionText: 'Проверить подписку',
-    badge: 'VIP Чат',
     isChannelSub: true,
   },
   {
@@ -485,14 +431,13 @@ export const INITIAL_TASKS: QuestTask[] = [
     channelLink: 'https://t.me/cryptoex_proofs',
     rewardXp: 80,
     rewardUsdt: 0.30,
-    progress: 1,
+    progress: 0,
     maxProgress: 1,
     unit: 'канал',
-    completed: true,
-    claimed: true,
+    completed: false,
+    claimed: false,
     iconName: 'ShieldCheck',
-    actionText: 'Выполнено',
-    badge: 'Подтверждено',
+    actionText: 'Проверить подписку',
     isChannelSub: true,
   },
   {
@@ -505,18 +450,17 @@ export const INITIAL_TASKS: QuestTask[] = [
     channelLink: '',
     rewardXp: 300,
     rewardUsdt: 5.00,
-    progress: 1,
+    progress: 0,
     maxProgress: 1,
     unit: 'канал',
-    completed: true,
+    completed: false,
     claimed: false,
     iconName: 'Crown',
-    actionText: 'Забрать $5.00',
-    badge: 'Бот в админах',
+    actionText: 'Подключить',
     isCustomChannel: true,
   },
 
-  // 4. НАКОПИТЕЛЬНЫЕ ВЕХИ И СТАТУС
+  // 4. НАКОПИТЕЛЬНЫЕ ВЕХИ (синхронизируются с реальной статистикой в App.tsx)
   {
     id: 'task_rating_gold',
     title: 'Золотой статус селлера',
@@ -526,14 +470,13 @@ export const INITIAL_TASKS: QuestTask[] = [
     rewardXp: 300,
     rewardUsdt: 5.0,
     rewardCashbackBonus: 1.5,
-    progress: 50,
+    progress: 0,
     maxProgress: 50,
     unit: 'сделок',
-    completed: true,
+    completed: false,
     claimed: false,
     iconName: 'Crown',
     actionText: 'Получить VIP бонус',
-    badge: 'Gold статус',
   },
   {
     id: 'task_referral_3',
@@ -542,14 +485,13 @@ export const INITIAL_TASKS: QuestTask[] = [
     category: 'milestone',
     rewardXp: 200,
     rewardUsdt: 3.0,
-    progress: 3,
+    progress: 0,
     maxProgress: 3,
     unit: 'чел.',
-    completed: true,
+    completed: false,
     claimed: false,
     iconName: 'Users',
     actionText: 'Забрать $3.00',
-    badge: 'Партнерка',
   },
   {
     id: 'task_whale_volume',
@@ -559,155 +501,20 @@ export const INITIAL_TASKS: QuestTask[] = [
     minTier: 'Platinum',
     rewardXp: 500,
     rewardUsdt: 15.0,
-    progress: 14850,
+    progress: 0,
     maxProgress: 5000,
     unit: '$',
-    completed: true,
-    claimed: true,
+    completed: false,
+    claimed: false,
     iconName: 'Award',
-    actionText: 'Получено',
-    badge: 'Кит-уровень',
+    actionText: 'Получить бонус',
   },
 ];
 
-export const INITIAL_ADMIN_CHANNELS: CustomAdminChannel[] = [
-  {
-    id: 'chan_1',
-    username: '@ton_alpha_community',
-    title: 'TON Alpha Community | Сигналы & Чат',
-    subscribersCount: 4820,
-    botIsAdmin: true,
-    botPermissions: ['Управление участниками', 'Просмотр статистики', 'Проверка подписок'],
-    addedDate: '10.08.2026',
-    activeStatus: 'active',
-  },
-];
+export const INITIAL_ADMIN_CHANNELS: CustomAdminChannel[] = [];
 
-export const INITIAL_TRANSACTIONS: Transaction[] = [
-  {
-    id: 'tx_984128',
-    date: 'Сегодня, 18:24',
-    cryptoSymbol: 'USDT',
-    cryptoAmount: 150.00,
-    fiatCurrency: 'RUB',
-    fiatAmount: 13927.50,
-    rateUsed: 92.85,
-    volumeBonusPercent: 0.3,
-    tierBonusPercent: 0.5,
-    chequeCode: 'CQ91kf0A88zXp',
-    status: 'completed',
-    requisite: INITIAL_REQUISITES[0],
-    payoutTxId: 'SBP_RUR_84920194883',
-    timeTakenSeconds: 32,
-    cashbackEarned: 0.60,
-    xpEarned: 45,
-  },
-  {
-    id: 'tx_984042',
-    date: 'Сегодня, 14:05',
-    cryptoSymbol: 'USDT',
-    cryptoAmount: 85.00,
-    fiatCurrency: 'RUB',
-    fiatAmount: 7892.25,
-    rateUsed: 92.85,
-    volumeBonusPercent: 0.3,
-    tierBonusPercent: 0.5,
-    chequeCode: 'CQ74a9BcQ41Op',
-    status: 'completed',
-    requisite: INITIAL_REQUISITES[1],
-    payoutTxId: 'CARD_MIR_77491028',
-    timeTakenSeconds: 41,
-    cashbackEarned: 0.45,
-    xpEarned: 35,
-  },
-  {
-    id: 'tx_983890',
-    date: 'Вчера, 21:12',
-    cryptoSymbol: 'USDT',
-    cryptoAmount: 500.00,
-    fiatCurrency: 'RUB',
-    fiatAmount: 46425.00,
-    rateUsed: 92.85,
-    volumeBonusPercent: 0.7,
-    tierBonusPercent: 0.5,
-    chequeCode: 'CQ18mZk998Lxw',
-    status: 'completed',
-    requisite: INITIAL_REQUISITES[0],
-    payoutTxId: 'SBP_RUR_109284759',
-    timeTakenSeconds: 27,
-    cashbackEarned: 2.00,
-    xpEarned: 150,
-  },
-  {
-    id: 'tx_983512',
-    date: '12.08.2026',
-    cryptoSymbol: 'USDT',
-    cryptoAmount: 200.00,
-    fiatCurrency: 'RUB',
-    fiatAmount: 18570.00,
-    rateUsed: 92.85,
-    volumeBonusPercent: 0.7,
-    tierBonusPercent: 0.5,
-    chequeCode: 'CQ55xPq398Tyy',
-    status: 'completed',
-    requisite: INITIAL_REQUISITES[2],
-    payoutTxId: 'SBP_RUR_774102941',
-    timeTakenSeconds: 35,
-    cashbackEarned: 0.80,
-    xpEarned: 60,
-  },
-];
+export const INITIAL_TRANSACTIONS: Transaction[] = [];
 
-export const INITIAL_ADMINS: AdminUser[] = [
-  {
-    id: 'adm_owner',
-    telegramId: '683475204632',
-    username: 'cryptocheque_owner',
-    fullName: 'Владелец Сервиса',
-    role: 'owner',
-    addedAt: '01.08.2026',
-    addedBy: 'Система',
-  },
-  {
-    id: 'adm_1',
-    telegramId: '99281741',
-    username: 'p2p_operator_sbp',
-    fullName: 'Оператор СБП Выплат',
-    role: 'admin',
-    addedAt: '05.08.2026',
-    addedBy: 'cryptocheque_owner',
-  },
-];
+export const INITIAL_ADMINS: AdminUser[] = [];
 
-export const INITIAL_ADMIN_ORDERS: AdminOrder[] = [
-  {
-    id: 'ord_new_1',
-    orderNumber: 'ORD-984129',
-    createdAt: 'Только что (1 мин назад)',
-    userTelegramId: '88419204',
-    userUsername: 'alex_trader',
-    userFullName: 'Александр Трейдер',
-    cryptoSymbol: 'USDT',
-    cryptoAmount: 250.00,
-    fiatAmount: 23212.50,
-    rateUsed: 92.85,
-    chequeCode: 'CQ8841b99aZp',
-    requisite: INITIAL_REQUISITES[0],
-    status: 'new',
-  },
-  {
-    id: 'ord_new_2',
-    orderNumber: 'ORD-984130',
-    createdAt: '3 минуты назад',
-    userTelegramId: '77410294',
-    userUsername: 'usdt_investor',
-    userFullName: 'Иван Сергеев',
-    cryptoSymbol: 'USDT',
-    cryptoAmount: 120.00,
-    fiatAmount: 11142.00,
-    rateUsed: 92.85,
-    chequeCode: 'CQ1149usdt88x',
-    requisite: INITIAL_REQUISITES[1],
-    status: 'new',
-  },
-];
+export const INITIAL_ADMIN_ORDERS: AdminOrder[] = [];
