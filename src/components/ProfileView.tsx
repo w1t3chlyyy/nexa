@@ -283,20 +283,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      <button
-        id="btn-profile-open-tg-bot"
-        onClick={() => {
-          sound.playTap();
-          if (onOpenTelegramBot) onOpenTelegramBot();
-        }}
-        className="w-full p-3.5 rounded-xl bg-[#141415] hover:bg-zinc-900 border border-zinc-800/70 flex items-center justify-between transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2.5">
-          <Bot className="w-4 h-4 text-zinc-500" />
-          <span className="text-sm text-white">Чат с ботом</span>
-        </div>
-        <ChevronRight className="w-4 h-4 text-zinc-600" />
-      </button>
+     
 
       {onOpenAdminPanel && (
         <button
