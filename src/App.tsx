@@ -556,8 +556,12 @@ export default function App() {
 
         <main className="flex-1 px-4 pt-4 pb-28 overflow-y-auto">
           {activeTab === 'home' && (
-            <HomeView tier={currentTierInfo} onNavigateToSell={() => setActiveTab('sell')} />
-          )}
+  <HomeView 
+    tier={currentTierInfo} 
+    rates={rates}  // ← добавить эту строку
+    onNavigateToSell={() => setActiveTab('sell')} 
+  />
+)}
 
           {activeTab === 'sell' && (
             <SellChequeView
