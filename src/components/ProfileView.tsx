@@ -36,6 +36,11 @@ interface ProfileViewProps {
   onOpenAdminPanel?: () => void;
 }
 
+// Имя бота для реферальной ссылки. Задаётся через VITE_BOT_USERNAME в .env —
+// это публичная информация (никакой секрет), поэтому её можно спокойно
+// зашивать в клиентскую сборку.
+const BOT_USERNAME = (import.meta as any).env?.VITE_BOT_USERNAME || 'your_bot';
+
 export const ProfileView: React.FC<ProfileViewProps> = ({
   user,
   tier,
@@ -53,9 +58,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [activeTab, setActiveTab] = useState<'requisites' | 'stats' | 'history'>('requisites');
   const [copiedRef, setCopiedRef] = useState<boolean>(false);
 
+  // Реферальная ссылка теперь всегда ref_<telegramId> — бот сам находит
+  // пригласившего по этому id (см. api/webhook.ts). Раньше здесь было
+  // задвоение "ref_ref_..." и ссылка вообще ни на что не влияла.
+  const referralLink = `https://t.me/${BOT_USERNAME}?start=ref_${user.telegramId}`;
+
   const handleCopyReferral = () => {
     sound.playTap();
-    navigator.clipboard.writeText(`https://t.me/CryptoChequePayBot?start=ref_${user.referralCode}`);
+    navigator.clipboard.writeText(referralLink);
     setCopiedRef(true);
     setTimeout(() => setCopiedRef(false), 2000);
   };
@@ -88,7 +98,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   return (
-    <div id="profile-view" className="space-y-3 pb-24 select-none">
+    <div id="profile-view" className="space-y-3 pb-28 select-none">
       <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -207,7 +217,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               { label: 'Оборот', value: `$${user.totalVolumeUsd.toLocaleString('en-US')}` },
               { label: 'Сделок', value: String(user.completedDeals) },
               { label: 'Скорость', value: `${user.avgSpeedSeconds} сек` },
-              { label: 'Рефералы', value: `+$${user.referralEarningsUsdt.toFixed(2)}` },
+              { label: 'Рефералы', value: `${user.referralsCount} чел.` },
             ].map((s) => (
               <div key={s.label} className="p-3.5 rounded-xl bg-[#141415] border border-zinc-800/70">
                 <div className="text-xs text-zinc-500">{s.label}</div>
@@ -218,10 +228,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
           <div className="p-4 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-2">
             <div className="text-sm text-white">Реферальная ссылка</div>
-            <p className="text-xs text-zinc-500">15% с комиссии сделок ваших друзей</p>
+            <p className="text-xs text-zinc-500">15% с комиссии сделок ваших друзей · заработано ${user.referralEarningsUsdt.toFixed(2)}</p>
             <div className="flex items-center gap-1.5">
               <div className="flex-1 bg-black/30 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs font-mono text-zinc-400 truncate">
-                t.me/CryptoSellBot?start=ref_{user.referralCode}
+                {referralLink}
               </div>
               <button
                 onClick={handleCopyReferral}
@@ -273,7 +283,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-     
+      <button
+        id="btn-profile-open-tg-bot"
+        onClick={() => {
+          sound.playTap();
+          if (onOpenTelegramBot) onOpenTelegramBot();
+        }}
+        className="w-full p-3.5 rounded-xl bg-[#141415] hover:bg-zinc-900 border border-zinc-800/70 flex items-center justify-between transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2.5">
+          <Bot className="w-4 h-4 text-zinc-500" />
+          <span className="text-sm text-white">Чат с ботом</span>
+        </div>
+        <ChevronRight className="w-4 h-4 text-zinc-600" />
+      </button>
 
       {onOpenAdminPanel && (
         <button
