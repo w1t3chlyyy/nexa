@@ -40,7 +40,9 @@ export interface PaymentRequisite {
   createdAt: string;
 }
 
-export type RatingTier = 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
+// Раньше был фиксированный union 'Bronze' | 'Silver' | ... — теперь ранги
+// создаются админом произвольно (через бота), поэтому это просто строка-ключ.
+export type RatingTier = string;
 
 export interface TierInfo {
   tier: RatingTier;
@@ -165,7 +167,6 @@ export interface AdminOrder {
 }
 
 // Результат РЕАЛЬНОЙ проверки чека через /api/validate-cheque (CryptoBot API).
-// Больше не содержит угаданных данных — только то, что вернул сам CryptoBot.
 export interface ValidatedCheque {
   code: string;
   checkId: number;
@@ -174,6 +175,16 @@ export interface ValidatedCheque {
 }
 
 export type QuestCategory = 'daily' | 'trade' | 'telegram_sub' | 'milestone';
+
+// Что именно двигает прогресс задания — см. миграцию v3 / api/webhook.ts.
+export type ProgressTrigger =
+  | 'per_trade'
+  | 'daily_volume'
+  | 'single_deal_min'
+  | 'milestone_deals'
+  | 'milestone_referrals'
+  | 'milestone_volume'
+  | 'manual';
 
 export interface QuestTask {
   id: string;
@@ -192,6 +203,7 @@ export interface QuestTask {
   iconName: string;
   actionText: string;
   badge?: string;
+  progressTrigger?: ProgressTrigger;
   // Для проверки подписки через Telegram Bot
   channelUsername?: string;
   channelTitle?: string;
@@ -210,4 +222,16 @@ export interface CustomAdminChannel {
   botPermissions: string[];
   addedDate: string;
   activeStatus: 'active' | 'pending' | 'revoked';
+}
+
+// Баннеры главной страницы. size='small' — верхний ряд «историй»,
+// size='large' — большие промо-карточки ниже курса.
+export interface Banner {
+  id: string;
+  title: string;
+  image_url: string;
+  link_url: string;
+  size: 'small' | 'large';
+  sort_order: number;
+  is_active: boolean;
 }
