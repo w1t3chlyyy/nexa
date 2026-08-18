@@ -18,7 +18,6 @@ import {
   RatingTier,
   TierInfo,
   PdfReceiptData,
-  Banner,
 } from './types';
 import {
   INITIAL_USER_STATS,
@@ -33,6 +32,7 @@ import { sound } from './utils/sound';
 import { getTelegramUser } from './utils/telegram';
 import { supabase } from './lib/supabase';
 
+// Определяем пользователя Telegram один раз при загрузке приложения.
 const tgUser = getTelegramUser();
 const userKey = tgUser ? `cryptobot_user_stats_${tgUser.id}` : 'cryptobot_user_stats';
 const reqKey = tgUser ? `cryptobot_requisites_${tgUser.id}` : 'cryptobot_requisites';
@@ -94,6 +94,8 @@ function buildInitialUser(): UserStats {
   return INITIAL_USER_STATS;
 }
 
+// Оценка суммы сделки в долларах — используется и для баланса пользователя,
+// и для прогресса заданий, чтобы обе цифры совпадали.
 function amountToUsd(tx: Transaction): number {
   return tx.cryptoAmount * (tx.cryptoSymbol === 'USDT' ? 1 : 5.6);
 }
@@ -132,9 +134,6 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isAdminRatesOpen, setIsAdminRatesOpen] = useState<boolean>(false);
 
-  const [rates, setRates] = useState<Record<string, number>>({});
-  const [banners, setBanners] = useState<Banner[]>([]);
-
   useEffect(() => {
     localStorage.setItem(userKey, JSON.stringify(user));
   }, [user]);
@@ -155,6 +154,7 @@ export default function App() {
     localStorage.setItem(txKey, JSON.stringify(transactions));
   }, [transactions]);
 
+  // Синхронизация профиля с Supabase при первом открытии.
   useEffect(() => {
     if (!supabase || !tgUser) return;
 
@@ -190,8 +190,12 @@ export default function App() {
         );
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Реальное число рефералов — считаем пользователей, у кого referred_by
+  // указывает на наш telegram_id (проставляется ботом при переходе по
+  // реферальной ссылке, см. api/webhook.ts).
   useEffect(() => {
     if (!supabase || !tgUser) return;
     (async () => {
@@ -205,6 +209,7 @@ export default function App() {
     })();
   }, []);
 
+  // Проверяем, является ли текущий пользователь админом (таблица admins в Supabase)
   useEffect(() => {
     if (!supabase || !tgUser) return;
 
@@ -219,76 +224,23 @@ export default function App() {
     })();
   }, []);
 
+  // Подтягиваем актуальные курсы обмена из таблицы exchange_rates при старте.
   useEffect(() => {
     if (!supabase) return;
 
-    const loadRates = async () => {
+    (async () => {
       const { data } = await supabase.from('exchange_rates').select('crypto_symbol, rate_rub');
       if (data) {
-        const newRates: Record<string, number> = {};
         data.forEach((row: any) => {
-          newRates[row.crypto_symbol] = Number(row.rate_rub);
+          const crypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === row.crypto_symbol);
+          if (crypto) crypto.priceRub = Number(row.rate_rub);
         });
-        setRates(newRates);
       }
-    };
-
-    loadRates();
-
-    const channel = supabase
-      .channel('exchange_rates_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'exchange_rates',
-        },
-        () => {
-          loadRates();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    })();
   }, []);
 
-  useEffect(() => {
-    if (!supabase) return;
-
-    const loadBanners = async () => {
-      const { data } = await supabase
-        .from('banners')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true });
-      if (data) setBanners(data as Banner[]);
-    };
-
-    loadBanners();
-
-    const channel = supabase
-      .channel('banners_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'banners',
-        },
-        () => {
-          loadBanners();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
+  // Ранги теперь живут в Supabase (tiers_config) и редактируются из бота —
+  // при наличии подключения полностью заменяют локальный набор по умолчанию.
   useEffect(() => {
     if (!supabase) return;
 
@@ -313,6 +265,9 @@ export default function App() {
     })();
   }, []);
 
+  // Задания тоже живут в Supabase (tasks) и редактируются из бота.
+  // Прогресс/claimed остаются локальными (по id) — при совпадении id
+  // сохраняем то, что пользователь уже накопил/забрал.
   useEffect(() => {
     if (!supabase) return;
 
@@ -351,6 +306,8 @@ export default function App() {
     })();
   }, []);
 
+  // Универсальный расчёт следующего ранга по XP — работает с любым набором
+  // рангов (в т.ч. добавленными вручную через бота), а не только с 5 фиксированными.
   const determineTier = (xp: number): RatingTier => {
     const sorted = Object.values(tiers).sort((a, b) => b.minXp - a.minXp);
     const found = sorted.find((t) => xp >= t.minXp);
@@ -467,6 +424,8 @@ export default function App() {
     setIsPdfModalOpen(true);
   };
 
+  // Обновляет прогресс заданий по факту реальной сделки — универсально,
+  // на основе progressTrigger, а не привязки к конкретным id.
   const updateTasksAfterTrade = (tx: Transaction) => {
     const amountUsd = amountToUsd(tx);
 
@@ -496,6 +455,7 @@ export default function App() {
     );
   };
 
+  // Синхронизация "накопительных" заданий (milestone) с реальной статистикой.
   useEffect(() => {
     setTasks((prev) => {
       let changed = false;
@@ -533,6 +493,7 @@ export default function App() {
     setTransactions((prev) => [txWithPdf, ...prev]);
     updateTasksAfterTrade(tx);
 
+    // Заявка уходит в Supabase → оператор увидит её в самом боте через /admin → «Ордеры»
     if (supabase && tgUser) {
       supabase.from('orders').insert({
         order_number: `ORD-${tx.id.substring(0, 8)}`,
@@ -595,12 +556,7 @@ export default function App() {
 
         <main className="flex-1 px-4 pt-4 pb-28 overflow-y-auto">
           {activeTab === 'home' && (
-            <HomeView
-              tier={currentTierInfo}
-              rates={rates}
-              banners={banners}
-              onNavigateToSell={() => setActiveTab('sell')}
-            />
+            <HomeView tier={currentTierInfo} onNavigateToSell={() => setActiveTab('sell')} />
           )}
 
           {activeTab === 'sell' && (
