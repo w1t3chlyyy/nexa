@@ -1,22 +1,35 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowRight, ExternalLink } from 'lucide-react';
 import { TierInfo, Banner } from '../types';
 import { SUPPORTED_CRYPTOS } from '../data/mockData';
+import { supabase } from '../lib/supabase';
 import { sound } from '../utils/sound';
 
 interface HomeViewProps {
   tier: TierInfo;
-  rates: Record<string, number>;
-  banners: Banner[];
   onNavigateToSell: () => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ tier, rates, banners, onNavigateToSell }) => {
+export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) => {
+  const [banners, setBanners] = useState<Banner[]>([]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data } = await supabase
+        .from('banners')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (data) setBanners(data as Banner[]);
+    })();
+  }, []);
+
   const smallBanners = banners.filter((b) => b.size === 'small');
   const largeBanners = banners.filter((b) => b.size === 'large');
 
-  const baseRate = rates['USDT'] ?? SUPPORTED_CRYPTOS[0].priceRub;
-  const effectiveRate = Number((baseRate * (1 + tier.rateBonus / 100)).toFixed(2));
+  const currentCrypto = SUPPORTED_CRYPTOS[0];
+  const effectiveRate = Number((currentCrypto.priceRub * (1 + tier.rateBonus / 100)).toFixed(2));
 
   const openLink = (url: string) => {
     sound.playTap();
