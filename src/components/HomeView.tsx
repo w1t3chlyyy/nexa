@@ -7,10 +7,11 @@ import { sound } from '../utils/sound';
 
 interface HomeViewProps {
   tier: TierInfo;
+  rates: Record<string, number>;  // ← добавлено
   onNavigateToSell: () => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) => {
+export const HomeView: React.FC<HomeViewProps> = ({ tier, rates, onNavigateToSell }) => {
   const [banners, setBanners] = useState<Banner[]>([]);
 
   useEffect(() => {
@@ -28,8 +29,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) =>
   const smallBanners = banners.filter((b) => b.size === 'small');
   const largeBanners = banners.filter((b) => b.size === 'large');
 
-  const currentCrypto = SUPPORTED_CRYPTOS[0];
-  const effectiveRate = Number((currentCrypto.priceRub * (1 + tier.rateBonus / 100)).toFixed(2));
+  // Используем курс из пропсов или fallback
+  const baseRate = rates['USDT'] ?? SUPPORTED_CRYPTOS[0].priceRub;
+  const effectiveRate = Number((baseRate * (1 + tier.rateBonus / 100)).toFixed(2));
 
   const openLink = (url: string) => {
     sound.playTap();
