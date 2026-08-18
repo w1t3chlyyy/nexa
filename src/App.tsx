@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TelegramHeader } from './components/TelegramHeader';
 import { BottomNav, TabType } from './components/BottomNav';
+import { HomeView } from './components/HomeView';
 import { SellChequeView } from './components/SellChequeView';
 import { MarketView } from './components/MarketView';
 import { TasksAndBonusesView } from './components/TasksAndBonusesView';
@@ -32,8 +33,6 @@ import { getTelegramUser } from './utils/telegram';
 import { supabase } from './lib/supabase';
 
 // Определяем пользователя Telegram один раз при загрузке приложения.
-// Внутри Telegram (Mini App) здесь будут реальные id/username/фото.
-// Вне Telegram (обычный браузер, для разработки) — null, тогда используются общие demo-ключи.
 const tgUser = getTelegramUser();
 const userKey = tgUser ? `cryptobot_user_stats_${tgUser.id}` : 'cryptobot_user_stats';
 const reqKey = tgUser ? `cryptobot_requisites_${tgUser.id}` : 'cryptobot_requisites';
@@ -88,7 +87,7 @@ function buildInitialUser(): UserStats {
       fullName: tgUser.fullName,
       avatarUrl: tgUser.avatarUrl,
       isPremium: tgUser.isPremium,
-      referralCode: `ref_${tgUser.id.slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+      referralCode: tgUser.id,
     };
   }
 
@@ -102,7 +101,7 @@ function amountToUsd(tx: Transaction): number {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('sell');
+  const [activeTab, setActiveTab] = useState<TabType>('home');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   const [user, setUser] = useState<UserStats>(buildInitialUser);
@@ -194,6 +193,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Реальное число рефералов — считаем пользователей, у кого referred_by
+  // указывает на наш telegram_id (проставляется ботом при переходе по
+  // реферальной ссылке, см. api/webhook.ts).
+  useEffect(() => {
+    if (!supabase || !tgUser) return;
+    (async () => {
+      const { count } = await supabase
+        .from('users')
+        .select('telegram_id', { count: 'exact', head: true })
+        .eq('referred_by', Number(tgUser.id));
+      if (typeof count === 'number') {
+        setUser((prev) => ({ ...prev, referralsCount: count }));
+      }
+    })();
+  }, []);
+
   // Проверяем, является ли текущий пользователь админом (таблица admins в Supabase)
   useEffect(() => {
     if (!supabase || !tgUser) return;
@@ -224,41 +239,82 @@ export default function App() {
     })();
   }, []);
 
-  // Синхронизация "накопительных" заданий (milestone) с реальной статистикой
-  // пользователя. Раньше прогресс этих заданий был захардкожен в mockData —
-  // новый аккаунт с 0 сделок видел их уже выполненными. Теперь прогресс
-  // всегда пересчитывается от user.completedDeals / referralsCount / totalVolumeUsd,
-  // а уже забранные (claimed) задания не трогаем повторно.
+  // Ранги теперь живут в Supabase (tiers_config) и редактируются из бота —
+  // при наличии подключения полностью заменяют локальный набор по умолчанию.
   useEffect(() => {
-    setTasks((prev) => {
-      let changed = false;
-      const next = prev.map((t) => {
-        if (t.claimed) return t;
+    if (!supabase) return;
 
-        let progress = t.progress;
-        if (t.id === 'task_rating_gold') progress = Math.min(t.maxProgress, user.completedDeals);
-        else if (t.id === 'task_referral_3') progress = Math.min(t.maxProgress, user.referralsCount);
-        else if (t.id === 'task_whale_volume') progress = Math.min(t.maxProgress, user.totalVolumeUsd);
-        else return t;
+    (async () => {
+      const { data } = await supabase.from('tiers_config').select('*').order('min_xp', { ascending: true });
+      if (data && data.length > 0) {
+        const record: Record<string, TierInfo> = {};
+        data.forEach((row: any) => {
+          record[row.tier_key] = {
+            tier: row.tier_key,
+            title: row.title,
+            minXp: row.min_xp,
+            color: row.color,
+            rateBonus: Number(row.rate_bonus),
+            cashbackPercent: Number(row.cashback_percent),
+            payoutSpeedText: row.payout_speed_text,
+            features: Array.isArray(row.features) ? row.features : [],
+          };
+        });
+        setTiers(record);
+      }
+    })();
+  }, []);
 
-        const completed = progress >= t.maxProgress;
-        if (progress === t.progress && completed === t.completed) return t;
-        changed = true;
-        return { ...t, progress, completed };
+  // Задания тоже живут в Supabase (tasks) и редактируются из бота.
+  // Прогресс/claimed остаются локальными (по id) — при совпадении id
+  // сохраняем то, что пользователь уже накопил/забрал.
+  useEffect(() => {
+    if (!supabase) return;
+
+    (async () => {
+      const { data } = await supabase.from('tasks').select('*').eq('is_active', true);
+      if (!data) return;
+
+      setTasks((prevTasks) => {
+        const prevById = new Map(prevTasks.map((t) => [t.id, t]));
+        return data.map((row: any) => {
+          const existing = prevById.get(row.id);
+          return {
+            id: row.id,
+            title: row.title,
+            description: row.description,
+            category: row.category,
+            rewardXp: row.reward_xp,
+            rewardUsdt: row.reward_usdt ? Number(row.reward_usdt) : undefined,
+            progress: existing?.progress ?? 0,
+            maxProgress: Number(row.max_progress),
+            unit: row.unit,
+            completed: existing?.completed ?? false,
+            claimed: existing?.claimed ?? false,
+            iconName: row.icon_name,
+            actionText: row.action_text,
+            badge: existing?.badge,
+            progressTrigger: row.progress_trigger,
+            channelUsername: row.channel_username || undefined,
+            channelTitle: row.channel_title || undefined,
+            channelLink: row.channel_link || undefined,
+            isChannelSub: row.is_channel_sub,
+            isRequiredSub: row.is_required_sub,
+          } as QuestTask;
+        });
       });
-      return changed ? next : prev;
-    });
-  }, [user.completedDeals, user.referralsCount, user.totalVolumeUsd]);
+    })();
+  }, []);
 
+  // Универсальный расчёт следующего ранга по XP — работает с любым набором
+  // рангов (в т.ч. добавленными вручную через бота), а не только с 5 фиксированными.
   const determineTier = (xp: number): RatingTier => {
-    if (xp >= (tiers.Diamond?.minXp || 5000)) return 'Diamond';
-    if (xp >= (tiers.Platinum?.minXp || 2000)) return 'Platinum';
-    if (xp >= (tiers.Gold?.minXp || 750)) return 'Gold';
-    if (xp >= (tiers.Silver?.minXp || 250)) return 'Silver';
-    return 'Bronze';
+    const sorted = Object.values(tiers).sort((a, b) => b.minXp - a.minXp);
+    const found = sorted.find((t) => xp >= t.minXp);
+    return found ? found.tier : sorted[sorted.length - 1]?.tier || 'Bronze';
   };
 
-  const currentTierInfo = tiers[user.tier] || tiers.Gold || TIERS.Gold;
+  const currentTierInfo = tiers[user.tier] || Object.values(tiers)[0] || TIERS.Gold;
 
   const handleToggleSound = () => {
     const next = !soundEnabled;
@@ -368,9 +424,8 @@ export default function App() {
     setIsPdfModalOpen(true);
   };
 
-  // Обновляет прогресс "trade"-заданий по факту реальной сделки.
-  // Раньше эти задания вообще ничем не обновлялись и просто стояли
-  // захардкоженными как выполненные/невыполненные из mockData.
+  // Обновляет прогресс заданий по факту реальной сделки — универсально,
+  // на основе progressTrigger, а не привязки к конкретным id.
   const updateTasksAfterTrade = (tx: Transaction) => {
     const amountUsd = amountToUsd(tx);
 
@@ -378,30 +433,49 @@ export default function App() {
       prev.map((t) => {
         if (t.claimed) return t;
 
-        if (t.id === 'task_daily_trade_1' || t.id === 'task_trade_instant_reward') {
-          return { ...t, progress: t.maxProgress, completed: true };
+        switch (t.progressTrigger) {
+          case 'per_trade': {
+            const progress = Math.min(t.maxProgress, t.progress + 1);
+            return { ...t, progress, completed: progress >= t.maxProgress };
+          }
+          case 'daily_volume': {
+            const progress = Math.min(t.maxProgress, t.progress + amountUsd);
+            return { ...t, progress, completed: progress >= t.maxProgress };
+          }
+          case 'single_deal_min': {
+            if (amountUsd >= t.maxProgress) {
+              return { ...t, progress: t.maxProgress, completed: true };
+            }
+            return t;
+          }
+          default:
+            return t;
         }
-        if (t.id === 'task_daily_volume_100') {
-          const progress = Math.min(t.maxProgress, t.progress + amountUsd);
-          return { ...t, progress, completed: progress >= t.maxProgress };
-        }
-        if (t.id === 'task_trade_streak_3') {
-          const progress = Math.min(t.maxProgress, t.progress + 1);
-          return { ...t, progress, completed: progress >= t.maxProgress };
-        }
-        if (t.id === 'task_trade_big_deal_200' && amountUsd >= 200) {
-          return { ...t, progress: t.maxProgress, completed: true };
-        }
-        if (
-          t.id === 'task_trade_ton_not' &&
-          (tx.cryptoSymbol === 'TON' || tx.cryptoSymbol === 'NOT' || tx.cryptoSymbol === 'DOGS')
-        ) {
-          return { ...t, progress: t.maxProgress, completed: true };
-        }
-        return t;
       })
     );
   };
+
+  // Синхронизация "накопительных" заданий (milestone) с реальной статистикой.
+  useEffect(() => {
+    setTasks((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.claimed) return t;
+
+        let progress = t.progress;
+        if (t.progressTrigger === 'milestone_deals') progress = Math.min(t.maxProgress, user.completedDeals);
+        else if (t.progressTrigger === 'milestone_referrals') progress = Math.min(t.maxProgress, user.referralsCount);
+        else if (t.progressTrigger === 'milestone_volume') progress = Math.min(t.maxProgress, user.totalVolumeUsd);
+        else return t;
+
+        const completed = progress >= t.maxProgress;
+        if (progress === t.progress && completed === t.completed) return t;
+        changed = true;
+        return { ...t, progress, completed };
+      });
+      return changed ? next : prev;
+    });
+  }, [user.completedDeals, user.referralsCount, user.totalVolumeUsd]);
 
   const handleTransactionSuccess = (tx: Transaction) => {
     const pdfData = createPdfReceiptData(
@@ -419,7 +493,7 @@ export default function App() {
     setTransactions((prev) => [txWithPdf, ...prev]);
     updateTasksAfterTrade(tx);
 
-    // Заявка уходит в Supabase → оператор увидит её в самом боте через /admin → «Новые заявки»
+    // Заявка уходит в Supabase → оператор увидит её в самом боте через /admin → «Ордеры»
     if (supabase && tgUser) {
       supabase.from('orders').insert({
         order_number: `ORD-${tx.id.substring(0, 8)}`,
@@ -480,7 +554,11 @@ export default function App() {
           onOpenProfile={() => setActiveTab('profile')}
         />
 
-        <main className="flex-1 px-4 pt-4 pb-24 overflow-y-auto">
+        <main className="flex-1 px-4 pt-4 pb-28 overflow-y-auto">
+          {activeTab === 'home' && (
+            <HomeView tier={currentTierInfo} onNavigateToSell={() => setActiveTab('sell')} />
+          )}
+
           {activeTab === 'sell' && (
             <SellChequeView
               user={user}
@@ -501,6 +579,7 @@ export default function App() {
             <TasksAndBonusesView
               user={user}
               tier={currentTierInfo}
+              tiers={tiers}
               tasks={tasks}
               onClaimTask={handleClaimTask}
               onClaimDailyStreak={handleClaimDailyStreak}
