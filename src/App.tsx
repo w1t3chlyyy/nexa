@@ -134,6 +134,9 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isAdminRatesOpen, setIsAdminRatesOpen] = useState<boolean>(false);
 
+  // Состояние для курсов валют
+  const [rates, setRates] = useState<Record<string, number>>({});
+
   useEffect(() => {
     localStorage.setItem(userKey, JSON.stringify(user));
   }, [user]);
@@ -231,10 +234,11 @@ export default function App() {
     (async () => {
       const { data } = await supabase.from('exchange_rates').select('crypto_symbol, rate_rub');
       if (data) {
+        const newRates: Record<string, number> = {};
         data.forEach((row: any) => {
-          const crypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === row.crypto_symbol);
-          if (crypto) crypto.priceRub = Number(row.rate_rub);
+          newRates[row.crypto_symbol] = Number(row.rate_rub);
         });
+        setRates(newRates);
       }
     })();
   }, []);
@@ -556,12 +560,12 @@ export default function App() {
 
         <main className="flex-1 px-4 pt-4 pb-28 overflow-y-auto">
           {activeTab === 'home' && (
-  <HomeView 
-    tier={currentTierInfo} 
-    rates={rates}  // ← добавить эту строку
-    onNavigateToSell={() => setActiveTab('sell')} 
-  />
-)}
+            <HomeView 
+              tier={currentTierInfo} 
+              rates={rates}  // ← передаем rates
+              onNavigateToSell={() => setActiveTab('sell')} 
+            />
+          )}
 
           {activeTab === 'sell' && (
             <SellChequeView
