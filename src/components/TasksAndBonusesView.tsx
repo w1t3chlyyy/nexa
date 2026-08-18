@@ -8,12 +8,12 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { UserStats, TierInfo, QuestTask, RatingTier, QuestCategory } from '../types';
-import { TIERS } from '../data/mockData';
 import { sound } from '../utils/sound';
 
 interface TasksAndBonusesViewProps {
   user: UserStats;
   tier: TierInfo;
+  tiers: Record<string, TierInfo>;
   tasks: QuestTask[];
   onClaimTask: (taskId: string) => void;
   onClaimDailyStreak: () => void;
@@ -32,6 +32,7 @@ const CATEGORY_LABELS: { id: QuestCategory | 'all'; label: string }[] = [
 export const TasksAndBonusesView: React.FC<TasksAndBonusesViewProps> = ({
   user,
   tier,
+  tiers,
   tasks,
   onClaimTask,
   onClaimDailyStreak,
@@ -45,6 +46,7 @@ export const TasksAndBonusesView: React.FC<TasksAndBonusesViewProps> = ({
 
   const filteredTasks = tasks.filter((t) => activeCategory === 'all' || t.category === activeCategory);
   const xpPercent = Math.min(100, Math.round((user.xp / user.xpToNextTier) * 100));
+  const tierKeys = Object.keys(tiers);
 
   const handleClaimStreak = () => {
     if (user.streakClaimedToday) return;
@@ -95,7 +97,7 @@ export const TasksAndBonusesView: React.FC<TasksAndBonusesViewProps> = ({
   };
 
   return (
-    <div id="tasks-bonuses-view" className="space-y-3 pb-24 select-none">
+    <div id="tasks-bonuses-view" className="space-y-3 pb-28 select-none">
       {/* Ранг и XP */}
       <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
         <div className="flex items-center justify-between">
@@ -138,53 +140,56 @@ export const TasksAndBonusesView: React.FC<TasksAndBonusesViewProps> = ({
         </button>
       </div>
 
-      {/* Ранги */}
-      <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
-        <h3 className="text-sm font-medium text-white">Ранги и надбавки</h3>
+      {/* Ранги (динамически из Supabase tiers_config, редактируются в боте) */}
+      {tierKeys.length > 0 && (
+        <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
+          <h3 className="text-sm font-medium text-white">Ранги и надбавки</h3>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-          {Object.keys(TIERS).map((tierKey) => {
-            const t = TIERS[tierKey];
-            const isCurrent = user.tier === t.tier;
-            const isSelected = selectedTierDetail === t.tier;
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            {tierKeys.map((tierKey) => {
+              const t = tiers[tierKey];
+              const isCurrent = user.tier === t.tier;
+              const isSelected = selectedTierDetail === t.tier;
+              return (
+                <button
+                  key={t.tier}
+                  onClick={() => {
+                    sound.playTap();
+                    setSelectedTierDetail(t.tier);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs whitespace-nowrap transition-colors cursor-pointer ${
+                    isSelected ? 'bg-zinc-100 text-black' : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {t.title.split(' ')[0]}
+                  {isCurrent && ' · вы'}
+                </button>
+              );
+            })}
+          </div>
+
+          {(() => {
+            const detail = tiers[selectedTierDetail] || tiers[tierKeys[0]];
+            if (!detail) return null;
             return (
-              <button
-                key={t.tier}
-                onClick={() => {
-                  sound.playTap();
-                  setSelectedTierDetail(t.tier);
-                }}
-                className={`px-3 py-1 rounded-lg text-xs whitespace-nowrap transition-colors cursor-pointer ${
-                  isSelected ? 'bg-zinc-100 text-black' : 'bg-zinc-900 text-zinc-400 hover:text-white'
-                }`}
-              >
-                {t.title.split(' ')[0]}
-                {isCurrent && ' · вы'}
-              </button>
-            );
-          })}
-        </div>
-
-        {(() => {
-          const detail = TIERS[selectedTierDetail] || TIERS.Gold;
-          return (
-            <div className="pt-2 border-t border-zinc-800 space-y-1.5">
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="text-white">{detail.title}</span>
-                <span className="text-[#A3FF12] font-mono text-xs">+{detail.rateBonus}%</span>
-              </div>
-              {detail.features.map((feature, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-xs text-zinc-400">
-                  <CheckCircle2 className="w-3 h-3 text-zinc-600 flex-shrink-0" />
-                  <span>{feature}</span>
+              <div className="pt-2 border-t border-zinc-800 space-y-1.5">
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="text-white">{detail.title}</span>
+                  <span className="text-[#A3FF12] font-mono text-xs">+{detail.rateBonus}%</span>
                 </div>
-              ))}
-            </div>
-          );
-        })()}
-      </div>
+                {detail.features.map((feature, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs text-zinc-400">
+                    <CheckCircle2 className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+                    <span>{feature}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
-      {/* Задания */}
+      {/* Задания (динамически из Supabase tasks, редактируются в боте) */}
       <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-white">Задания</h3>
@@ -210,98 +215,102 @@ export const TasksAndBonusesView: React.FC<TasksAndBonusesViewProps> = ({
           ))}
         </div>
 
-        <div className="space-y-2">
-          {filteredTasks.map((task) => {
-            const isReadyToClaim = task.completed && !task.claimed;
-            const isClaimed = task.claimed;
-            const isVerifying = verifyingTaskId === task.id;
-            const err = verificationError[task.id];
+        {filteredTasks.length === 0 ? (
+          <div className="text-center text-xs text-zinc-600 py-6">Заданий пока нет.</div>
+        ) : (
+          <div className="space-y-2">
+            {filteredTasks.map((task) => {
+              const isReadyToClaim = task.completed && !task.claimed;
+              const isClaimed = task.claimed;
+              const isVerifying = verifyingTaskId === task.id;
+              const err = verificationError[task.id];
 
-            return (
-              <div
-                key={task.id}
-                id={`task-item-${task.id}`}
-                className={`p-3.5 rounded-xl border transition-colors ${
-                  isClaimed ? 'border-zinc-900 opacity-50' : 'border-zinc-800'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white">{task.title}</div>
-                    <p className="text-xs text-zinc-500 mt-0.5 leading-snug">{task.description}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0 text-xs font-mono">
-                    <div className="text-[#A3FF12]">+{task.rewardXp} XP</div>
-                    {task.rewardUsdt && <div className="text-zinc-500">+${task.rewardUsdt}</div>}
-                  </div>
-                </div>
-
-                {task.category === 'telegram_sub' && !isClaimed && !task.completed && task.channelUsername && (
-                  <div className="mt-2.5 pt-2.5 border-t border-zinc-800/70 flex items-center justify-between text-xs">
-                    <span className="text-zinc-500">{task.channelUsername}</span>
-                    {task.channelLink && (
-                      <a
-                        href={task.channelLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-zinc-400 hover:text-white inline-flex items-center gap-1"
-                      >
-                        Открыть <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
-                )}
-
-                {err && <div className="text-xs text-rose-400 mt-1.5">{err}</div>}
-
-                <div className="mt-2.5 pt-2.5 border-t border-zinc-800/70 flex items-center justify-between gap-2.5">
-                  <div className="flex-1">
-                    <div className="w-full h-1 rounded-full bg-zinc-900 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-zinc-600"
-                        style={{ width: `${Math.min(100, (task.progress / task.maxProgress) * 100)}%` }}
-                      />
+              return (
+                <div
+                  key={task.id}
+                  id={`task-item-${task.id}`}
+                  className={`p-3.5 rounded-xl border transition-colors ${
+                    isClaimed ? 'border-zinc-900 opacity-50' : 'border-zinc-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white">{task.title}</div>
+                      <p className="text-xs text-zinc-500 mt-0.5 leading-snug">{task.description}</p>
                     </div>
-                    <div className="text-[10px] text-zinc-600 mt-1">
-                      {Math.min(task.progress, task.maxProgress)} / {task.maxProgress} {task.unit}
+                    <div className="text-right flex-shrink-0 text-xs font-mono">
+                      <div className="text-[#A3FF12]">+{task.rewardXp} XP</div>
+                      {task.rewardUsdt ? <div className="text-zinc-500">+${task.rewardUsdt}</div> : null}
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={isVerifying || isClaimed}
-                    onClick={() => handleTaskClick(task)}
-                    className={`py-1.5 px-3 rounded-lg text-xs font-medium whitespace-nowrap flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      isVerifying
-                        ? 'bg-zinc-900 text-zinc-500 cursor-wait'
-                        : isReadyToClaim
-                        ? 'bg-[#A3FF12] hover:bg-[#b2ff33] text-black'
-                        : isClaimed
-                        ? 'bg-transparent text-zinc-600 cursor-default'
-                        : 'bg-zinc-900 hover:bg-zinc-800 text-white'
-                    }`}
-                  >
-                    {isVerifying ? (
-                      <>
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        <span>Проверка</span>
-                      </>
-                    ) : isReadyToClaim ? (
-                      'Забрать'
-                    ) : isClaimed ? (
-                      'Получено'
-                    ) : (
-                      <>
-                        <span>{task.actionText}</span>
-                        <ChevronRight className="w-3 h-3" />
-                      </>
-                    )}
-                  </button>
+                  {task.category === 'telegram_sub' && !isClaimed && !task.completed && task.channelUsername && (
+                    <div className="mt-2.5 pt-2.5 border-t border-zinc-800/70 flex items-center justify-between text-xs">
+                      <span className="text-zinc-500">{task.channelUsername}</span>
+                      {task.channelLink && (
+                        <a
+                          href={task.channelLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-zinc-400 hover:text-white inline-flex items-center gap-1"
+                        >
+                          Открыть <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {err && <div className="text-xs text-rose-400 mt-1.5">{err}</div>}
+
+                  <div className="mt-2.5 pt-2.5 border-t border-zinc-800/70 flex items-center justify-between gap-2.5">
+                    <div className="flex-1">
+                      <div className="w-full h-1 rounded-full bg-zinc-900 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-zinc-600"
+                          style={{ width: `${Math.min(100, (task.progress / task.maxProgress) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-zinc-600 mt-1">
+                        {Math.min(task.progress, task.maxProgress)} / {task.maxProgress} {task.unit}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isVerifying || isClaimed}
+                      onClick={() => handleTaskClick(task)}
+                      className={`py-1.5 px-3 rounded-lg text-xs font-medium whitespace-nowrap flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        isVerifying
+                          ? 'bg-zinc-900 text-zinc-500 cursor-wait'
+                          : isReadyToClaim
+                          ? 'bg-[#A3FF12] hover:bg-[#b2ff33] text-black'
+                          : isClaimed
+                          ? 'bg-transparent text-zinc-600 cursor-default'
+                          : 'bg-zinc-900 hover:bg-zinc-800 text-white'
+                      }`}
+                    >
+                      {isVerifying ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <span>Проверка</span>
+                        </>
+                      ) : isReadyToClaim ? (
+                        'Забрать'
+                      ) : isClaimed ? (
+                        'Получено'
+                      ) : (
+                        <>
+                          <span>{task.actionText}</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
