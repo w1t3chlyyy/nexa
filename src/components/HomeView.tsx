@@ -11,7 +11,7 @@ interface HomeViewProps {
   onNavigateToSell: () => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) => {
+export const HomeView: React.FC<HomeViewProps> = ({ tier, cryptoRates, onNavigateToSell }) => {
   const [banners, setBanners] = useState<Banner[]>([]);
 
   useEffect(() => {
