@@ -14,14 +14,35 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) =>
   const [banners, setBanners] = useState<Banner[]>([]);
 
   useEffect(() => {
-    if (!supabase) return;
+    console.log('🏠 HomeView mount, supabase:', supabase ? '✅ есть' : '❌ null');
+
+    if (!supabase) {
+      console.warn('❌ Supabase не инициализирован — проверь lib/supabase.ts и env-переменные');
+      return;
+    }
+
     (async () => {
-      const { data } = await supabase
+      console.log('📡 Отправляю запрос banners...');
+      
+      const { data, error } = await supabase
         .from('banners')
         .select('*')
         .eq('is_active', true)
         .order('sort_order', { ascending: true });
-      if (data) setBanners(data as Banner[]);
+
+      console.log('📊 Banners result:', { data, error, count: data?.length });
+
+      if (error) {
+        console.error('❌ Banners error:', error);
+        return;
+      }
+
+      if (data) {
+        console.log('✅ Banners loaded:', data.length, 'шт.');
+        setBanners(data as Banner[]);
+      } else {
+        console.log('⚠️ Banners data is null/undefined');
+      }
     })();
   }, []);
 
@@ -30,6 +51,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) =>
 
   const currentCrypto = SUPPORTED_CRYPTOS[0];
   const effectiveRate = Number((currentCrypto.priceRub * (1 + tier.rateBonus / 100)).toFixed(2));
+
+  console.log('💱 Рендер: effectiveRate =', effectiveRate, 'priceRub =', currentCrypto.priceRub, 'bonus =', tier.rateBonus);
 
   const openLink = (url: string) => {
     sound.playTap();
@@ -52,6 +75,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) =>
               <span className="text-[10px] text-zinc-400 text-center leading-tight line-clamp-2">{b.title}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {smallBanners.length === 0 && (
+        <div className="text-xs text-zinc-600 text-center py-2">
+          📭 Маленькие баннеры не загружены (count: 0)
         </div>
       )}
 
@@ -90,6 +119,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, onNavigateToSell }) =>
               </div>
             </button>
           ))}
+        </div>
+      )}
+
+      {largeBanners.length === 0 && (
+        <div className="text-xs text-zinc-600 text-center py-2">
+          📭 Большие баннеры не загружены (count: 0)
         </div>
       )}
     </div>
