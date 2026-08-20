@@ -50,8 +50,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, cryptoRates, onNavigat
   const smallBanners = banners.filter((b) => b.size === 'small');
   const largeBanners = banners.filter((b) => b.size === 'large');
 
-  const currentCrypto = SUPPORTED_CRYPTOS[0];
-  const effectiveRate = Number((currentCrypto.priceRub * (1 + tier.rateBonus / 100)).toFixed(2));
+   const currentCrypto = SUPPORTED_CRYPTOS[0];
+  const liveRate = cryptoRates[currentCrypto.symbol] ?? currentCrypto.priceRub;
+  const effectiveRate = Number((liveRate * (1 + tier.rateBonus / 100)).toFixed(2));
 
   console.log('💱 Рендер: effectiveRate =', effectiveRate, 'priceRub =', currentCrypto.priceRub, 'bonus =', tier.rateBonus);
 
