@@ -124,6 +124,13 @@ export default function App() {
     const saved = localStorage.getItem(txKey);
     return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
   });
+  const [cryptoRates, setCryptoRates] = useState<Record<string, number>>(() => {
+  const initial: Record<string, number> = {};
+  SUPPORTED_CRYPTOS.forEach((c) => {
+    initial[c.symbol] = c.priceRub;
+  });
+  return initial;
+});
 
   const [isAddRequisiteOpen, setIsAddRequisiteOpen] = useState<boolean>(false);
   const [activeReceiptTx, setActiveReceiptTx] = useState<Transaction | null>(null);
@@ -220,41 +227,34 @@ export default function App() {
     })();
   }, []);
 
-  // === ПОДТЯГИВАЕМ КУРСЫ ОБМЕНА ИЗ SUPABASE (С ЛОГИРОВАНИЕМ) ===
+  // Подтягиваем актуальные курсы обмена из таблицы exchange_rates при старте.
   useEffect(() => {
     console.log('💱 Rates effect запущен, supabase:', supabase ? '✅ есть' : '❌ null');
-
     if (!supabase) {
-      console.warn('❌ Supabase не инициализирован — курсы не загрузятся. Проверь lib/supabase.ts и env-переменные (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)');
+      console.warn('❌ Supabase не инициализирован — курсы не загрузятся');
       return;
     }
-
     (async () => {
-      console.log('📡 Отправляю запрос exchange_rates...');
-      
       const { data, error } = await supabase.from('exchange_rates').select('crypto_symbol, rate_rub');
-
       console.log('📊 Rates result:', { data, error });
-
+      
       if (error) {
         console.error('❌ Rates error:', error);
         return;
       }
-
+      
       if (data && data.length > 0) {
         console.log('✅ Rates loaded:', data.length, 'записей');
-        data.forEach((row: any) => {
-          const crypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === row.crypto_symbol);
-          if (crypto) {
-            const oldPrice = crypto.priceRub;
-            crypto.priceRub = Number(row.rate_rub);
-            console.log(`💱 ${row.crypto_symbol}: ${oldPrice} → ${crypto.priceRub} ₽`);
-          } else {
-            console.warn('⚠️ Не найдена крипта в SUPPORTED_CRYPTOS:', row.crypto_symbol);
-          }
+        setCryptoRates((prev) => {
+          const next = { ...prev };
+          data.forEach((row: any) => {
+            next[row.crypto_symbol] = Number(row.rate_rub);
+            console.log(`💱 ${row.crypto_symbol}: ${prev[row.crypto_symbol]} → ${next[row.crypto_symbol]} ₽`);
+          });
+          return next;
         });
       } else {
-        console.log('⚠️ Rates data пустой или null. Проверь, что в таблице exchange_rates есть записи.');
+        console.log('⚠️ Rates data пустой. Проверь таблицу exchange_rates.');
       }
     })();
   }, []);
