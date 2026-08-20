@@ -7,6 +7,7 @@ import { sound } from '../utils/sound';
 
 interface HomeViewProps {
   tier: TierInfo;
+  cryptoRates: Record<string, number>;
   onNavigateToSell: () => void;
 }
 
