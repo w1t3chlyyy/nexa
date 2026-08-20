@@ -65,20 +65,22 @@ export const HomeView: React.FC<HomeViewProps> = ({ tier, cryptoRates, onNavigat
     <div id="home-view" className="space-y-4 pb-28 select-none">
       {smallBanners.length > 0 && (
         <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar">
-          {smallBanners.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => openLink(b.link_url)}
-              className="flex-shrink-0 w-20 flex flex-col items-center gap-1.5 cursor-pointer"
-            >
-              <div className="w-20 h-20 rounded-2xl overflow-hidden border border-zinc-800 bg-[#141415]">
-                <img src={b.image_url} alt={b.title} className="w-full h-full object-cover" />
-              </div>
-              <span className="text-[10px] text-zinc-400 text-center leading-tight line-clamp-2">{b.title}</span>
-            </button>
-          ))}
+          {smallBanners.length > 0 && (
+  <div className="flex items-center gap-3 overflow-x-auto no-scrollbar px-0">
+    {smallBanners.map((b) => (
+      <button
+        key={b.id}
+        onClick={() => openLink(b.link_url)}
+        className="flex-shrink-0 w-[calc(50%-6px)] aspect-square flex flex-col items-center gap-2 cursor-pointer"
+      >
+        <div className="w-full aspect-square rounded-2xl overflow-hidden border border-zinc-800 bg-[#141415]">
+          <img src={b.image_url} alt={b.title} className="w-full h-full object-cover" />
         </div>
-      )}
+        <span className="text-[10px] text-zinc-400 text-center leading-tight line-clamp-2 px-1">{b.title}</span>
+      </button>
+    ))}
+  </div>
+)}
 
       {smallBanners.length === 0 && (
         <div className="text-xs text-zinc-600 text-center py-2">
