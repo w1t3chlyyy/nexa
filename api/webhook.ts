@@ -25,11 +25,6 @@ async function tgApi(token: string, method: string, body: Record<string, any>): 
   }
 }
 
-// Раньше эта функция всегда отправляла И parse_mode:'HTML', И entities
-// одновременно — Telegram API не поддерживает такую комбинацию (entities
-// заменяют parse_mode, а не дополняют его), из-за чего премиум-эмодзи
-// либо не показывались, либо смещения текста уезжали. Теперь используется
-// РОВНО один из вариантов.
 async function sendTelegramMessage(
   chatId: number | string,
   text: string,
@@ -142,10 +137,6 @@ async function setBotSettings(supabase: SupabaseClient | null, value: any) {
   }
 }
 
-// Собирает текст + entities приветствия. Если сохранена "премиум"-пара
-// (текст и entities, снятые из ОДНОГО оригинального сообщения админа) —
-// используется именно она, потому что entities валидны только для того
-// текста, из которого они взяты. Иначе — обычный HTML-текст.
 function buildWelcomePayload(settings: any): { text: string; entities?: any[] } {
   if (settings?.premiumText && Array.isArray(settings?.premiumEntities) && settings.premiumEntities.length > 0) {
     return { text: settings.premiumText, entities: settings.premiumEntities };
@@ -190,7 +181,7 @@ const TASK_FORMAT_HELP =
   'Название | Описание | категория (daily/trade/telegram_sub/milestone) | XP | USDT | maxProgress | unit | текст кнопки | триггер (per_trade/daily_volume/single_deal_min/milestone_deals/milestone_referrals/milestone_volume/manual) | @канал или -';
 
 // ══════════════════════════════════════════════════════════════════
-//  STORAGE HELPERS — НОВЫЕ ФУНКЦИИ ДЛЯ ЗАГРУЗКИ ФОТО
+//  STORAGE HELPERS
 // ══════════════════════════════════════════════════════════════════
 
 async function uploadBannerToStorage(supabase: SupabaseClient, fileBuffer: Buffer, fileName: string): Promise<string | null> {
@@ -201,7 +192,7 @@ async function uploadBannerToStorage(supabase: SupabaseClient, fileBuffer: Buffe
         contentType: 'image/jpeg',
         upsert: true,
       });
-    
+
     if (error) {
       console.error('Storage upload error:', error);
       return null;
@@ -225,14 +216,12 @@ async function deleteBannerFromStorage(supabase: SupabaseClient, storagePath: st
 
 async function downloadTelegramFile(token: string, fileId: string): Promise<Buffer | null> {
   try {
-    // 1. Получаем file_path у Telegram
     const fileInfo = await tgApi(token, 'getFile', { file_id: fileId });
     if (!fileInfo.ok || !fileInfo.result?.file_path) {
       console.error('getFile failed:', fileInfo);
       return null;
     }
 
-    // 2. Скачиваем файл по прямой ссылке
     const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.result.file_path}`;
     const response = await fetch(fileUrl);
     if (!response.ok) {
@@ -559,13 +548,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (cbData.startsWith('banner_delete:')) {
         if (!supabase) return res.status(200).json({ ok: true });
         const bannerId = cbData.split(':')[1];
-        
-        // Удаляем фото из Storage перед удалением записи
+
         const { data: oldBanner } = await supabase.from('banners').select('storage_path').eq('id', bannerId).maybeSingle();
         if (oldBanner?.storage_path) {
           await deleteBannerFromStorage(supabase, oldBanner.storage_path);
         }
-        
+
         const { error } = await supabase.from('banners').delete().eq('id', bannerId);
         await sendTelegramMessage(chatId, error ? `⚠️ ${error.message}` : '✅ Баннер удалён.', {
           inline_keyboard: [[{ text: '⬅️ К баннерам', callback_data: 'admin_banners_menu' }]],
@@ -573,9 +561,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true });
       }
 
-      // ═══════════════════════════════════════════════════════════
-      //  НОВЫЕ КНОПКИ БАННЕРОВ — ОТПРАВКА ФОТО ВМЕСТО URL
-      // ═══════════════════════════════════════════════════════════
       if (cbData.startsWith('banner_edit_start:')) {
         const bannerId = cbData.split(':')[1];
         await setFsmState(supabase, fromUser.id, { step: 'banner_edit', bannerId });
@@ -707,8 +692,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-     // ═══════════════════════════════════════════════════════════
-    //  PHOTO MESSAGES — ОБРАБОТКА ФОТО ДЛЯ БАННЕРОВ
+    // ═══════════════════════════════════════════════════════════
+    //  PHOTO MESSAGES — СНАЧАЛА! (фото с caption обрабатывается здесь)
     // ═══════════════════════════════════════════════════════════
     if (update.message?.photo && update.message.photo.length > 0) {
       const msg = update.message;
@@ -718,8 +703,128 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { state: fsmState } = await getFsmState(supabase, fromUser.id);
 
+      // ── FSM: Баннеры — загрузка фото ─────────────────────────
+      if (fsmState.step === 'banner_edit' || fsmState.step === 'banner_add') {
+        if (!isAdmin(fromUser.id, ownerId)) {
+          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+        if (!supabase) {
+          await sendTelegramMessage(chatId, '⚠️ Supabase не настроен.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+
+        const caption = msg.caption || '';
+        const parts = parsePipeFields(caption, 2);
+        if (!parts) {
+          await sendTelegramMessage(chatId, '⚠️ Неверный формат подписи. Нужно: Заголовок | Ссылка\n\nПопробуйте снова или нажмите «Отмена».', {
+            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
+          });
+          return res.status(200).json({ ok: true });
+        }
+        const [title, linkUrl] = parts;
+        if (!/^https?:\/\//.test(linkUrl)) {
+          await sendTelegramMessage(chatId, '⚠️ Ссылка должна начинаться с http:// или https://. Попробуйте снова.', {
+            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
+          });
+          return res.status(200).json({ ok: true });
+        }
+
+        const token = process.env.BOT_TOKEN;
+        if (!token) {
+          await sendTelegramMessage(chatId, '⚠️ BOT_TOKEN не настроен.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+
+        const photos = msg.photo;
+        const largestPhoto = photos[photos.length - 1];
+        const fileId = largestPhoto.file_id;
+
+        await sendTelegramMessage(chatId, '⏳ Загружаю фото...');
+
+        const fileBuffer = await downloadTelegramFile(token, fileId);
+        if (!fileBuffer) {
+          await sendTelegramMessage(chatId, '⚠️ Не удалось скачать фото из Telegram. Попробуйте снова.', {
+            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
+          });
+          return res.status(200).json({ ok: true });
+        }
+
+        const fileExt = 'jpg';
+        const fileName = `banner_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+        const publicUrl = await uploadBannerToStorage(supabase, fileBuffer, fileName);
+        if (!publicUrl) {
+          await sendTelegramMessage(chatId, '⚠️ Не удалось загрузить фото в хранилище. Попробуйте снова.', {
+            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
+          });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (fsmState.step === 'banner_add') {
+          const { error } = await supabase.from('banners').insert({
+            title,
+            image_url: publicUrl,
+            link_url: linkUrl,
+            storage_path: fileName,
+            size: (fsmState as any).size,
+            is_active: true,
+          });
+          await clearFsmState(supabase, fromUser.id);
+          await sendTelegramMessage(chatId, error ? `⚠️ ${error.message}` : `✅ Баннер «${title}» добавлен.`, {
+            inline_keyboard: [[{ text: '⬅️ К баннерам', callback_data: 'admin_banners_menu' }]],
+          });
+        } else {
+          const bannerId = (fsmState as any).bannerId;
+
+          const { data: oldBanner } = await supabase.from('banners').select('storage_path').eq('id', bannerId).maybeSingle();
+          if (oldBanner?.storage_path) {
+            await deleteBannerFromStorage(supabase, oldBanner.storage_path);
+          }
+
+          const { error } = await supabase.from('banners').update({
+            title,
+            image_url: publicUrl,
+            link_url: linkUrl,
+            storage_path: fileName,
+          }).eq('id', bannerId);
+          await clearFsmState(supabase, fromUser.id);
+          await sendTelegramMessage(chatId, error ? `⚠️ ${error.message}` : '✅ Баннер обновлён.', {
+            inline_keyboard: [[{ text: '⬅️ К баннерам', callback_data: 'admin_banners_menu' }]],
+          });
+        }
+        return res.status(200).json({ ok: true });
+      }
+
+      // ── FSM: Welcome edit photo ───────────────────────────────
+      if (fsmState.step === 'welcome_edit_photo') {
+        if (!isAdmin(fromUser.id, ownerId)) {
+          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+
+        const photos = msg.photo;
+        const largestPhoto = photos[photos.length - 1];
+        const fileId = largestPhoto.file_id;
+
+        const settings = (await getBotSettings(supabase)) || {};
+        settings.photo = fileId;
+        await setBotSettings(supabase, settings);
+        await clearFsmState(supabase, fromUser.id);
+
+        await sendTelegramMessage(chatId, `✅ Фото сохранено!`, {
+          inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_welcome_menu' }]],
+        });
+        return res.status(200).json({ ok: true });
+      }
+    }
+
     // ═══════════════════════════════════════════════════════════
-    //  TEXT MESSAGES
+    //  TEXT MESSAGES (только без фото!)
     // ═══════════════════════════════════════════════════════════
     if (update.message && !update.message.photo) {
       const msg = update.message;
@@ -750,7 +855,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true });
       }
 
-      // ── FSM: Welcome edit premium emoji (текст+entities одной парой) ──
+      // ── FSM: Welcome edit premium emoji ──
       if (fsmState.step === 'welcome_edit_entities') {
         if (!isOwnerOrAdmin) {
           await sendTelegramMessage(chatId, '⛔️ Нет прав.');
@@ -774,8 +879,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const settings = (await getBotSettings(supabase)) || {};
-        // Текст и entities сохраняются ВМЕСТЕ, из одного сообщения —
-        // это обязательно, иначе смещения эмодзи не совпадут с текстом.
         settings.premiumText = msg.text;
         settings.premiumEntities = msg.entities;
         await setBotSettings(supabase, settings);
@@ -902,8 +1005,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true });
       }
 
-    
-
       // ── FSM: Курс ────────────────────────────────────────────
       if (fsmState.step === 'rate_edit') {
         if (!isOwnerOrAdmin) {
@@ -933,10 +1034,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // ── Commands ──────────────────────────────────────────────
       if (text.startsWith('/start')) {
-        // Реферальная ссылка вида /start ref_<telegram_id пригласившего>.
-        // Раньше этот параметр вообще не читался — переходы по ссылке
-        // ни на что не влияли. Теперь при первом заходе нового пользователя
-        // сохраняем, кто его пригласил, и шлём пригласившему уведомление.
         const payload = (msg.text || '').trim().split(' ')[1] || '';
         if (payload.startsWith('ref_') && supabase) {
           const referrerId = payload.replace('ref_', '');
@@ -984,134 +1081,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         const keyboard = await buildAdminMenuKeyboard(supabase, miniappUrl);
         await sendTelegramMessage(chatId, '👑 <b>Панель управления</b>', keyboard);
-        return res.status(200).json({ ok: true });
-      }
-    }
-
-   
-
-      // ═══════════════════════════════════════════════════════════
-      //  НОВЫЙ БЛОК: БАННЕРЫ — ЗАГРУЗКА ФОТО В SUPABASE STORAGE
-      // ═══════════════════════════════════════════════════════════
-      if (fsmState.step === 'banner_edit' || fsmState.step === 'banner_add') {
-        if (!isAdmin(fromUser.id, ownerId)) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          await clearFsmState(supabase, fromUser.id);
-          return res.status(200).json({ ok: true });
-        }
-        if (!supabase) {
-          await sendTelegramMessage(chatId, '⚠️ Supabase не настроен.');
-          await clearFsmState(supabase, fromUser.id);
-          return res.status(200).json({ ok: true });
-        }
-
-        const caption = msg.caption || '';
-        const parts = parsePipeFields(caption, 2);
-        if (!parts) {
-          await sendTelegramMessage(chatId, '⚠️ Неверный формат подписи. Нужно: Заголовок | Ссылка\n\nПопробуйте снова или нажмите «Отмена».', {
-            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
-          });
-          return res.status(200).json({ ok: true });
-        }
-        const [title, linkUrl] = parts;
-        if (!/^https?:\/\//.test(linkUrl)) {
-          await sendTelegramMessage(chatId, '⚠️ Ссылка должна начинаться с http:// или https://. Попробуйте снова.', {
-            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
-          });
-          return res.status(200).json({ ok: true });
-        }
-
-        // Скачиваем фото из Telegram
-        const token = process.env.BOT_TOKEN;
-        if (!token) {
-          await sendTelegramMessage(chatId, '⚠️ BOT_TOKEN не настроен.');
-          await clearFsmState(supabase, fromUser.id);
-          return res.status(200).json({ ok: true });
-        }
-
-        const photos = msg.photo;
-        const largestPhoto = photos[photos.length - 1];
-        const fileId = largestPhoto.file_id;
-
-        await sendTelegramMessage(chatId, '⏳ Загружаю фото...');
-
-        const fileBuffer = await downloadTelegramFile(token, fileId);
-        if (!fileBuffer) {
-          await sendTelegramMessage(chatId, '⚠️ Не удалось скачать фото из Telegram. Попробуйте снова.', {
-            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
-          });
-          return res.status(200).json({ ok: true });
-        }
-
-        // Генерируем уникальное имя файла
-        const fileExt = 'jpg';
-        const fileName = `banner_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
-
-        // Загружаем в Supabase Storage
-        const publicUrl = await uploadBannerToStorage(supabase, fileBuffer, fileName);
-        if (!publicUrl) {
-          await sendTelegramMessage(chatId, '⚠️ Не удалось загрузить фото в хранилище. Попробуйте снова.', {
-            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
-          });
-          return res.status(200).json({ ok: true });
-        }
-
-        if (fsmState.step === 'banner_add') {
-          const { error } = await supabase.from('banners').insert({
-            title,
-            image_url: publicUrl,
-            link_url: linkUrl,
-            storage_path: fileName,
-            size: (fsmState as any).size,
-            is_active: true,
-          });
-          await clearFsmState(supabase, fromUser.id);
-          await sendTelegramMessage(chatId, error ? `⚠️ ${error.message}` : `✅ Баннер «${title}» добавлен.`, {
-            inline_keyboard: [[{ text: '⬅️ К баннерам', callback_data: 'admin_banners_menu' }]],
-          });
-        } else {
-          const bannerId = (fsmState as any).bannerId;
-
-          // Удаляем старое фото из Storage
-          const { data: oldBanner } = await supabase.from('banners').select('storage_path').eq('id', bannerId).maybeSingle();
-          if (oldBanner?.storage_path) {
-            await deleteBannerFromStorage(supabase, oldBanner.storage_path);
-          }
-
-          const { error } = await supabase.from('banners').update({
-            title,
-            image_url: publicUrl,
-            link_url: linkUrl,
-            storage_path: fileName,
-          }).eq('id', bannerId);
-          await clearFsmState(supabase, fromUser.id);
-          await sendTelegramMessage(chatId, error ? `⚠️ ${error.message}` : '✅ Баннер обновлён.', {
-            inline_keyboard: [[{ text: '⬅️ К баннерам', callback_data: 'admin_banners_menu' }]],
-          });
-        }
-        return res.status(200).json({ ok: true });
-      }
-
-      // ── FSM: Welcome edit photo ───────────────────────────────
-      if (fsmState.step === 'welcome_edit_photo') {
-        if (!isAdmin(fromUser.id, ownerId)) {
-          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
-          await clearFsmState(supabase, fromUser.id);
-          return res.status(200).json({ ok: true });
-        }
-
-        const photos = msg.photo;
-        const largestPhoto = photos[photos.length - 1];
-        const fileId = largestPhoto.file_id;
-
-        const settings = (await getBotSettings(supabase)) || {};
-        settings.photo = fileId;
-        await setBotSettings(supabase, settings);
-        await clearFsmState(supabase, fromUser.id);
-
-        await sendTelegramMessage(chatId, `✅ Фото сохранено!`, {
-          inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'admin_welcome_menu' }]],
-        });
         return res.status(200).json({ ok: true });
       }
     }
