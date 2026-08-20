@@ -94,8 +94,7 @@ function buildInitialUser(): UserStats {
   return INITIAL_USER_STATS;
 }
 
-// Оценка суммы сделки в долларах — используется и для баланса пользователя,
-// и для прогресса заданий, чтобы обе цифры совпадали.
+// Оценка суммы сделки в долларах
 function amountToUsd(tx: Transaction): number {
   return tx.cryptoAmount * (tx.cryptoSymbol === 'USDT' ? 1 : 5.6);
 }
@@ -190,12 +189,9 @@ export default function App() {
         );
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Реальное число рефералов — считаем пользователей, у кого referred_by
-  // указывает на наш telegram_id (проставляется ботом при переходе по
-  // реферальной ссылке, см. api/webhook.ts).
+  // Реальное число рефералов
   useEffect(() => {
     if (!supabase || !tgUser) return;
     (async () => {
@@ -209,7 +205,7 @@ export default function App() {
     })();
   }, []);
 
-  // Проверяем, является ли текущий пользователь админом (таблица admins в Supabase)
+  // Проверяем, является ли текущий пользователь админом
   useEffect(() => {
     if (!supabase || !tgUser) return;
 
@@ -224,23 +220,46 @@ export default function App() {
     })();
   }, []);
 
-  // Подтягиваем актуальные курсы обмена из таблицы exchange_rates при старте.
+  // === ПОДТЯГИВАЕМ КУРСЫ ОБМЕНА ИЗ SUPABASE (С ЛОГИРОВАНИЕМ) ===
   useEffect(() => {
-    if (!supabase) return;
+    console.log('💱 Rates effect запущен, supabase:', supabase ? '✅ есть' : '❌ null');
+
+    if (!supabase) {
+      console.warn('❌ Supabase не инициализирован — курсы не загрузятся. Проверь lib/supabase.ts и env-переменные (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)');
+      return;
+    }
 
     (async () => {
-      const { data } = await supabase.from('exchange_rates').select('crypto_symbol, rate_rub');
-      if (data) {
+      console.log('📡 Отправляю запрос exchange_rates...');
+      
+      const { data, error } = await supabase.from('exchange_rates').select('crypto_symbol, rate_rub');
+
+      console.log('📊 Rates result:', { data, error });
+
+      if (error) {
+        console.error('❌ Rates error:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        console.log('✅ Rates loaded:', data.length, 'записей');
         data.forEach((row: any) => {
           const crypto = SUPPORTED_CRYPTOS.find((c) => c.symbol === row.crypto_symbol);
-          if (crypto) crypto.priceRub = Number(row.rate_rub);
+          if (crypto) {
+            const oldPrice = crypto.priceRub;
+            crypto.priceRub = Number(row.rate_rub);
+            console.log(`💱 ${row.crypto_symbol}: ${oldPrice} → ${crypto.priceRub} ₽`);
+          } else {
+            console.warn('⚠️ Не найдена крипта в SUPPORTED_CRYPTOS:', row.crypto_symbol);
+          }
         });
+      } else {
+        console.log('⚠️ Rates data пустой или null. Проверь, что в таблице exchange_rates есть записи.');
       }
     })();
   }, []);
 
-  // Ранги теперь живут в Supabase (tiers_config) и редактируются из бота —
-  // при наличии подключения полностью заменяют локальный набор по умолчанию.
+  // Ранги из Supabase
   useEffect(() => {
     if (!supabase) return;
 
@@ -265,9 +284,7 @@ export default function App() {
     })();
   }, []);
 
-  // Задания тоже живут в Supabase (tasks) и редактируются из бота.
-  // Прогресс/claimed остаются локальными (по id) — при совпадении id
-  // сохраняем то, что пользователь уже накопил/забрал.
+  // Задания из Supabase
   useEffect(() => {
     if (!supabase) return;
 
@@ -306,8 +323,7 @@ export default function App() {
     })();
   }, []);
 
-  // Универсальный расчёт следующего ранга по XP — работает с любым набором
-  // рангов (в т.ч. добавленными вручную через бота), а не только с 5 фиксированными.
+  // Универсальный расчёт следующего ранга по XP
   const determineTier = (xp: number): RatingTier => {
     const sorted = Object.values(tiers).sort((a, b) => b.minXp - a.minXp);
     const found = sorted.find((t) => xp >= t.minXp);
@@ -424,8 +440,6 @@ export default function App() {
     setIsPdfModalOpen(true);
   };
 
-  // Обновляет прогресс заданий по факту реальной сделки — универсально,
-  // на основе progressTrigger, а не привязки к конкретным id.
   const updateTasksAfterTrade = (tx: Transaction) => {
     const amountUsd = amountToUsd(tx);
 
@@ -455,7 +469,6 @@ export default function App() {
     );
   };
 
-  // Синхронизация "накопительных" заданий (milestone) с реальной статистикой.
   useEffect(() => {
     setTasks((prev) => {
       let changed = false;
@@ -493,7 +506,6 @@ export default function App() {
     setTransactions((prev) => [txWithPdf, ...prev]);
     updateTasksAfterTrade(tx);
 
-    // Заявка уходит в Supabase → оператор увидит её в самом боте через /admin → «Ордеры»
     if (supabase && tgUser) {
       supabase.from('orders').insert({
         order_number: `ORD-${tx.id.substring(0, 8)}`,
