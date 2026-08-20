@@ -707,10 +707,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+     // ═══════════════════════════════════════════════════════════
+    //  PHOTO MESSAGES — ОБРАБОТКА ФОТО ДЛЯ БАННЕРОВ
+    // ═══════════════════════════════════════════════════════════
+    if (update.message?.photo && update.message.photo.length > 0) {
+      const msg = update.message;
+      const chatId = msg.chat.id;
+      const fromUser = msg.from;
+      if (!fromUser) return res.status(200).json({ ok: true });
+
+      const { state: fsmState } = await getFsmState(supabase, fromUser.id);
+
     // ═══════════════════════════════════════════════════════════
     //  TEXT MESSAGES
     // ═══════════════════════════════════════════════════════════
-    if (update.message) {
+    if (update.message && !update.message.photo) {
       const msg = update.message;
       const chatId = msg.chat.id;
       const text = (msg.text || '').toLowerCase();
@@ -891,15 +902,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true });
       }
 
-      // ═══════════════════════════════════════════════════════════
-      //  НОВЫЙ БЛОК: БАННЕРЫ — ТЕКСТОВОЕ СООБЩЕНИЕ БЕЗ ФОТО = ОШИБКА
-      // ═══════════════════════════════════════════════════════════
-      if (fsmState.step === 'banner_edit' || fsmState.step === 'banner_add') {
-        await sendTelegramMessage(chatId, '⚠️ Отправьте фото с подписью, а не текстовое сообщение. Попробуйте снова.', {
-          inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'admin_cancel' }]],
-        });
-        return res.status(200).json({ ok: true });
-      }
+    
 
       // ── FSM: Курс ────────────────────────────────────────────
       if (fsmState.step === 'rate_edit') {
@@ -985,16 +988,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  PHOTO MESSAGES — ОБРАБОТКА ФОТО ДЛЯ БАННЕРОВ
-    // ═══════════════════════════════════════════════════════════
-    if (update.message?.photo && update.message.photo.length > 0) {
-      const msg = update.message;
-      const chatId = msg.chat.id;
-      const fromUser = msg.from;
-      if (!fromUser) return res.status(200).json({ ok: true });
-
-      const { state: fsmState } = await getFsmState(supabase, fromUser.id);
+   
 
       // ═══════════════════════════════════════════════════════════
       //  НОВЫЙ БЛОК: БАННЕРЫ — ЗАГРУЗКА ФОТО В SUPABASE STORAGE
