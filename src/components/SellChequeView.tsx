@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabase';
 interface SellChequeViewProps {
   user: UserStats;
   tier: TierInfo;
+  cryptoRates: Record<string, number>;
   requisites: PaymentRequisite[];
   onOpenAddRequisite: () => void;
   onTransactionSuccess: (tx: Transaction) => void;
@@ -36,6 +37,7 @@ type ValidationState = 'idle' | 'checking' | 'valid' | 'invalid';
 export const SellChequeView: React.FC<SellChequeViewProps> = ({
   user,
   tier,
+  cryptoRates,
   requisites,
   onOpenAddRequisite,
   onTransactionSuccess,
@@ -47,8 +49,6 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
     requisites.find((r) => r.isDefault)?.id || requisites[0]?.id || ''
   );
 
-  // Реальная проверка чека через /api/validate-cheque (CryptoBot API).
-  // Сумма и валюта берутся ТОЛЬКО из ответа сервера — никаких догадок по тексту кода.
   const [validation, setValidation] = useState<ValidationState>('idle');
   const [validatedCheque, setValidatedCheque] = useState<ValidatedCheque | null>(null);
   const [validationError, setValidationError] = useState<string>('');
@@ -64,15 +64,12 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
     }
   }, [requisites, selectedRequisiteId]);
 
-  // Сброс проверки при изменении ввода
   useEffect(() => {
     setValidation('idle');
     setValidatedCheque(null);
     setValidationError('');
   }, [chequeInput]);
 
-  // Опрос статуса заказа в Supabase, пока он в очереди.
-  // Как только оператор проставит orders.status = 'paid', заказ закроется автоматически.
   useEffect(() => {
     if (!activePendingOrder || !supabase) return;
     const orderNumber = `ORD-${activePendingOrder.id.substring(0, 8)}`;
@@ -112,12 +109,15 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
   const currentCrypto =
     SUPPORTED_CRYPTOS.find((c) => c.symbol === validatedCheque?.cryptoSymbol) || SUPPORTED_CRYPTOS[0];
 
+  // ← ЖИВОЙ КУРС ИЗ SUPABASE
+  const liveRate = cryptoRates[currentCrypto.symbol] ?? currentCrypto.priceRub;
+
   const amount = validatedCheque?.cryptoAmount || 0;
   const amountUsd = amount * currentCrypto.priceUsd;
   const activeVolumeTier = getVolumeTier(amountUsd);
   const totalBonusPercent = activeVolumeTier.rateBonusPercent + tier.rateBonus;
   const effectiveRate = Number(
-    (currentCrypto.priceRub * (1 + totalBonusPercent / 100)).toFixed(2)
+    (liveRate * (1 + totalBonusPercent / 100)).toFixed(2)
   );
   const estimatedPayoutRub = Math.round(amount * effectiveRate);
 
@@ -194,7 +194,6 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
 
   return (
     <div id="sell-cheque-view" className="space-y-3 pb-24 select-none">
-      {/* Pending order status — реальный опрос, без фейковой мгновенной выплаты */}
       {activePendingOrder && (
         <div className="p-4 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
           <div className="flex items-center justify-between">
@@ -233,7 +232,6 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
         </div>
       )}
 
-      {/* Ввод и проверка чека */}
       <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-4">
         <div>
           <h2 className="text-base font-semibold text-white">Продать чек</h2>
@@ -286,7 +284,6 @@ export const SellChequeView: React.FC<SellChequeViewProps> = ({
         )}
       </div>
 
-      {/* Реквизиты */}
       <div className="p-5 rounded-2xl bg-[#141415] border border-zinc-800/70 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
