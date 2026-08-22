@@ -29,7 +29,7 @@ async function sendTelegramMessage(
   chatId: number | string,
   text: string,
   replyMarkup?: any,
-  options?: { photo?: string; entities?: any[] }
+  options?: { photo?: string; entities?: any[]; document?: string }
 ) {
   const token = process.env.BOT_TOKEN;
   if (!token) {
@@ -46,6 +46,14 @@ async function sendTelegramMessage(
         caption: text,
         reply_markup: replyMarkup,
         ...(hasEntities ? { caption_entities: options!.entities } : { parse_mode: 'HTML' }),
+      });
+    } else if (options?.document) {
+      await tgApi(token, 'sendDocument', {
+        chat_id: chatId,
+        document: options.document,
+        caption: text,
+        reply_markup: replyMarkup,
+        parse_mode: 'HTML',
       });
     } else {
       await tgApi(token, 'sendMessage', {
@@ -98,7 +106,8 @@ type FsmState =
   | { step: 'task_edit'; taskId: string }
   | { step: 'task_add' }
   | { step: 'banner_edit'; bannerId: string }
-  | { step: 'banner_add'; size: 'small' | 'large' };
+  | { step: 'banner_add'; size: 'small' | 'large' }
+  | { step: 'order_receipt'; orderNumber: string };
 
 async function getFsmState(supabase: SupabaseClient | null, userId: number): Promise<{ state: FsmState }> {
   if (!supabase) return { state: { step: 'idle' } };
@@ -235,6 +244,28 @@ async function uploadBannerToStorage(supabase: SupabaseClient, fileBuffer: Buffe
   }
 }
 
+async function uploadReceiptToStorage(supabase: SupabaseClient, fileBuffer: Buffer, fileName: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.storage
+      .from('receipts')
+      .upload(fileName, fileBuffer, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+
+    if (error) {
+      console.error('Storage upload error:', error);
+      return null;
+    }
+
+    const { data: publicUrl } = supabase.storage.from('receipts').getPublicUrl(fileName);
+    return publicUrl.publicUrl;
+  } catch (err) {
+    console.error('uploadReceiptToStorage error:', err);
+    return null;
+  }
+}
+
 async function deleteBannerFromStorage(supabase: SupabaseClient, storagePath: string) {
   try {
     await supabase.storage.from('banners').remove([storagePath]);
@@ -267,6 +298,59 @@ async function downloadTelegramFile(token: string, fileId: string): Promise<Buff
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  ORDER NOTIFICATION HELPERS
+// ══════════════════════════════════════════════════════════════════
+
+async function notifyAdminNewOrder(supabase: SupabaseClient, order: any, adminChatId: number) {
+  const reqInfo = order.requisite || {};
+  const text =
+    `🆕 <b>Новая заявка ${order.order_number}</b>\n\n` +
+    `👤 Продавец: @${order.user_username || order.user_telegram_id}\n` +
+    `💰 Сумма: ${order.crypto_amount} ${order.crypto_symbol} → ${Number(order.fiat_amount).toLocaleString('ru-RU')} ₽\n` +
+    `🏦 Банк: ${reqInfo.bankName || '—'}\n` +
+    `💳 Счёт: ${reqInfo.accountNumber || '—'}\n` +
+    `👤 Получатель: ${reqInfo.recipientName || '—'}`;
+
+  await sendTelegramMessage(adminChatId, text, {
+    inline_keyboard: [
+      [
+        { text: '✅ Оплачено', callback_data: `mark_paid:${order.order_number}` },
+        { text: '❌ Отменить', callback_data: `mark_cancelled:${order.order_number}` },
+      ],
+    ],
+  });
+}
+
+async function notifySellerOrderCreated(sellerId: number, order: any) {
+  const text =
+    `📋 <b>Ваша заявка создана</b>\n\n` +
+    `Номер: ${order.order_number}\n` +
+    `Сумма: ${order.crypto_amount} ${order.crypto_symbol} → ${Number(order.fiat_amount).toLocaleString('ru-RU')} ₽\n` +
+    `Статус: ⏳ Ожидает оплаты\n\n` +
+    `Мы уведомим вас, когда администратор подтвердит оплату.`;
+  await sendTelegramMessage(sellerId, text);
+}
+
+async function notifySellerOrderPaid(sellerId: number, order: any, receiptUrl?: string) {
+  const text =
+    `✅ <b>Заявка оплачена!</b>\n\n` +
+    `Номер: ${order.order_number}\n` +
+    `Сумма: ${order.crypto_amount} ${order.crypto_symbol} → ${Number(order.fiat_amount).toLocaleString('ru-RU')} ₽\n` +
+    `TX ID: ${order.payout_tx_id || '—'}\n\n` +
+    (receiptUrl ? `📄 <a href="${receiptUrl}">Скачать чек (PDF)</a>` : 'Чек будет доступен в вашем профиле.');
+  await sendTelegramMessage(sellerId, text);
+}
+
+async function notifySellerOrderCancelled(sellerId: number, order: any, reason?: string) {
+  const text =
+    `❌ <b>Заявка отменена</b>\n\n` +
+    `Номер: ${order.order_number}\n` +
+    `Сумма: ${order.crypto_amount} ${order.crypto_symbol} → ${Number(order.fiat_amount).toLocaleString('ru-RU')} ₽\n` +
+    (reason ? `\nПричина: ${reason}` : '');
+  await sendTelegramMessage(sellerId, text);
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  MAIN HANDLER
 // ══════════════════════════════════════════════════════════════════
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -295,7 +379,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await answerCallbackQuery(cb.id);
       if (!chatId) return res.status(200).json({ ok: true });
 
-      const ADMIN_PREFIXES = ['admin', 'mark_paid', 'task_', 'tier_', 'banner_'];
+      const ADMIN_PREFIXES = ['admin', 'mark_paid', 'mark_cancelled', 'task_', 'tier_', 'banner_'];
       if (!isOwnerOrAdmin && ADMIN_PREFIXES.some((p) => cbData.startsWith(p))) {
         await sendTelegramMessage(chatId, '⛔️ Нет прав.');
         return res.status(200).json({ ok: true });
@@ -352,7 +436,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             `Получатель: ${reqInfo.recipientName || '—'}`;
 
           await sendTelegramMessage(chatId, text, {
-            inline_keyboard: [[{ text: '✅ Отметить оплаченной', callback_data: `mark_paid:${order.order_number}` }]],
+            inline_keyboard: [
+              [
+                { text: '✅ Оплачено', callback_data: `mark_paid:${order.order_number}` },
+                { text: '❌ Отменить', callback_data: `mark_cancelled:${order.order_number}` },
+              ],
+            ],
           });
         }
 
@@ -370,7 +459,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const orderNumber = cbData.split(':')[1];
         const payoutTxId = `SBP_RUR_${Math.floor(100000000 + Math.random() * 900000000)}`;
 
-        const { error: updateErr } = await supabase
+        const { data: order, error: updateErr } = await supabase
           .from('orders')
           .update({
             status: 'paid',
@@ -378,14 +467,77 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             payout_tx_id: payoutTxId,
             assigned_admin: fromUser.username || String(fromUser.id),
           })
-          .eq('order_number', orderNumber);
+          .eq('order_number', orderNumber)
+          .select()
+          .maybeSingle();
+
+        if (updateErr) {
+          await sendTelegramMessage(chatId, `⚠️ Не удалось обновить заявку: ${updateErr.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (!order) {
+          await sendTelegramMessage(chatId, '⚠️ Заявка не найдена.');
+          return res.status(200).json({ ok: true });
+        }
+
+        // Уведомляем продавца
+        await notifySellerOrderPaid(order.user_telegram_id, order);
+
+        // Переводим админа в режим ожидания PDF чека
+        await setFsmState(supabase, fromUser.id, { step: 'order_receipt', orderNumber });
 
         await sendTelegramMessage(
           chatId,
-          updateErr
-            ? `⚠️ Не удалось обновить заявку: ${updateErr.message}`
-            : `✅ Заявка ${orderNumber} отмечена оплаченной. Пользователь увидит это в приложении автоматически.`
+          `✅ Заявка ${orderNumber} отмечена оплаченной.\n\n📄 Пришлите PDF-чек в этот чат (документом), чтобы прикрепить его к заявке.\n\nИли нажмите «Пропустить», если чек не нужен.`,
+          {
+            inline_keyboard: [
+              [{ text: '⏭ Пропустить', callback_data: `skip_receipt:${orderNumber}` }],
+              [{ text: '⬅️ В меню', callback_data: 'admin_menu' }],
+            ],
+          }
         );
+        return res.status(200).json({ ok: true });
+      }
+
+      if (cbData.startsWith('mark_cancelled:')) {
+        if (!supabase) {
+          await sendTelegramMessage(chatId, '⚠️ Supabase не настроен.');
+          return res.status(200).json({ ok: true });
+        }
+        const orderNumber = cbData.split(':')[1];
+
+        const { data: order, error: updateErr } = await supabase
+          .from('orders')
+          .update({
+            status: 'cancelled',
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: fromUser.username || String(fromUser.id),
+          })
+          .eq('order_number', orderNumber)
+          .select()
+          .maybeSingle();
+
+        if (updateErr) {
+          await sendTelegramMessage(chatId, `⚠️ Не удалось отменить заявку: ${updateErr.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (order) {
+          await notifySellerOrderCancelled(order.user_telegram_id, order, 'Отменено администратором');
+        }
+
+        await sendTelegramMessage(chatId, `❌ Заявка ${orderNumber} отменена.`, {
+          inline_keyboard: [[{ text: '⬅️ К заявкам', callback_data: 'admin_orders_list' }]],
+        });
+        return res.status(200).json({ ok: true });
+      }
+
+      if (cbData.startsWith('skip_receipt:')) {
+        await clearFsmState(supabase, fromUser.id);
+        await sendTelegramMessage(chatId, '✅ Чек пропущен. Заявка завершена.', {
+          inline_keyboard: [[{ text: '⬅️ К заявкам', callback_data: 'admin_orders_list' }]],
+        });
         return res.status(200).json({ ok: true });
       }
 
@@ -856,6 +1008,80 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  DOCUMENT MESSAGES (PDF receipts)
+    // ═══════════════════════════════════════════════════════════
+    if (update.message?.document && update.message.document.mime_type === 'application/pdf') {
+      const msg = update.message;
+      const chatId = msg.chat.id;
+      const fromUser = msg.from;
+      if (!fromUser) return res.status(200).json({ ok: true });
+
+      const { state: fsmState } = await getFsmState(supabase, fromUser.id);
+
+      if (fsmState.step === 'order_receipt') {
+        if (!isAdmin(fromUser.id, ownerId)) {
+          await sendTelegramMessage(chatId, '⛔️ Нет прав.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+        if (!supabase) {
+          await sendTelegramMessage(chatId, '⚠️ Supabase не настроен.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+
+        const orderNumber = (fsmState as any).orderNumber;
+        const token = process.env.BOT_TOKEN;
+        if (!token) {
+          await sendTelegramMessage(chatId, '⚠️ BOT_TOKEN не настроен.');
+          await clearFsmState(supabase, fromUser.id);
+          return res.status(200).json({ ok: true });
+        }
+
+        const fileId = msg.document.file_id;
+        const fileName = `receipt_${orderNumber}_${Date.now()}.pdf`;
+
+        await sendTelegramMessage(chatId, '⏳ Загружаю чек...');
+
+        const fileBuffer = await downloadTelegramFile(token, fileId);
+        if (!fileBuffer) {
+          await sendTelegramMessage(chatId, '⚠️ Не удалось скачать PDF. Попробуйте снова.', {
+            inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'admin_menu' }]],
+          });
+          return res.status(200).json({ ok: true });
+        }
+
+        const publicUrl = await uploadReceiptToStorage(supabase, fileBuffer, fileName);
+        if (!publicUrl) {
+          await sendTelegramMessage(chatId, '⚠️ Не удалось загрузить чек в хранилище. Попробуйте снова.', {
+            inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'admin_menu' }]],
+          });
+          return res.status(200).json({ ok: true });
+        }
+
+        // Обновляем заявку
+        const { data: order } = await supabase
+          .from('orders')
+          .update({ receipt_url: publicUrl, receipt_path: fileName })
+          .eq('order_number', orderNumber)
+          .select()
+          .maybeSingle();
+
+        await clearFsmState(supabase, fromUser.id);
+
+        if (order) {
+          // Уведомляем продавца с ссылкой на чек
+          await notifySellerOrderPaid(order.user_telegram_id, order, publicUrl);
+        }
+
+        await sendTelegramMessage(chatId, `✅ Чек прикреплён к заявке ${orderNumber}.`, {
+          inline_keyboard: [[{ text: '⬅️ К заявкам', callback_data: 'admin_orders_list' }]],
+        });
+        return res.status(200).json({ ok: true });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  TEXT MESSAGES (только без фото!)
     // ═══════════════════════════════════════════════════════════
     if (update.message && !update.message.photo) {
@@ -1174,7 +1400,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   referred_by: Number(referrerId),
                 },
                 { onConflict: 'telegram_id' }
-              );
+
+                              );
 
               await sendTelegramMessage(
                 Number(referrerId),
@@ -1215,3 +1442,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ error: err.message });
   }
 }
+                
