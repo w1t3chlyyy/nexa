@@ -69,7 +69,22 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
     console.error('answerCallbackQuery error:', err);
   }
 }
-
+// ─── Channel subscription check ──────────────────────────────────
+async function checkChannelSubscription(token: string, userId: number, channelUsername: string): Promise<boolean> {
+  try {
+    const cleanUsername = channelUsername.replace('@', '');
+    const res = await tgApi(token, 'getChatMember', {
+      chat_id: `@${cleanUsername}`,
+      user_id: userId,
+    });
+    if (!res.ok) return false;
+    const status = res.result?.status;
+    return status === 'member' || status === 'administrator' || status === 'creator';
+  } catch (err) {
+    console.error('checkChannelSubscription error:', err);
+    return false;
+  }
+}
 // ─── FSM state helpers ──────────────────────────────────────────
 type FsmState =
   | { step: 'idle' }
@@ -592,6 +607,92 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         );
         return res.status(200).json({ ok: true });
       }
+
+      // ── Check tasks / claim rewards ─────────────────────────────
+if (text.startsWith('/check') || text === 'задания') {
+  if (!supabase) {
+    await sendTelegramMessage(chatId, '⚠️ Сервис временно недоступен.');
+    return res.status(200).json({ ok: true });
+  }
+
+  const token = process.env.BOT_TOKEN;
+  if (!token) {
+    await sendTelegramMessage(chatId, '⚠️ BOT_TOKEN не настроен.');
+    return res.status(200).json({ ok: true });
+  }
+
+  // Получаем активные задания на подписку
+  const { data: subTasks, error: tasksErr } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('category', 'telegram_sub')
+    .eq('is_active', true);
+
+  if (tasksErr || !subTasks || subTasks.length === 0) {
+    await sendTelegramMessage(chatId, '📢 Активных заданий на подписку пока нет.');
+    return res.status(200).json({ ok: true });
+  }
+
+  // Получаем уже выполненные задания пользователя
+  const { data: completedTasks } = await supabase
+    .from('user_tasks')
+    .select('task_id')
+    .eq('user_id', fromUser.id);
+
+  const completedIds = new Set((completedTasks || []).map((t: any) => t.task_id));
+
+  let checkedCount = 0;
+  let rewardedCount = 0;
+
+  for (const task of subTasks) {
+    if (completedIds.has(task.id)) continue;
+
+    checkedCount++;
+    const isSubscribed = await checkChannelSubscription(token, fromUser.id, task.channel_username);
+
+    if (isSubscribed) {
+      // Начисляем награду
+      const { error: insertErr } = await supabase.from('user_tasks').insert({
+        user_id: fromUser.id,
+        task_id: task.id,
+        completed_at: new Date().toISOString(),
+      });
+
+      if (!insertErr) {
+        // Начисляем XP
+        await supabase.rpc('increment_xp', {
+          p_user_id: fromUser.id,
+          p_xp: task.reward_xp,
+        });
+
+        // Начисляем USDT если есть
+        if (task.reward_usdt > 0) {
+          await supabase.rpc('increment_balance', {
+            p_user_id: fromUser.id,
+            p_amount: task.reward_usdt,
+          });
+        }
+
+        rewardedCount++;
+      }
+    }
+  }
+
+  if (rewardedCount > 0) {
+    await sendTelegramMessage(
+      chatId,
+      `🎉 <b>Награды получены!</b>\n\n` +
+      `Проверено заданий: ${checkedCount}\n` +
+      `Выполнено и награждено: ${rewardedCount}\n\n` +
+      `XP и баланс начислены автоматически.`
+    );
+  } else if (checkedCount > 0) {
+    await sendTelegramMessage(
+      chatId,
+      `📢 <b>Проверка подписок</b>\n\n` +
+      `Проверено заданий: ${checkedCount}\n` +
+      `Новых подписок не обнаружено.\n\n` +
+      `Подпишитесь на каналы и попробуйте снова командой /
 
       // ── Курс ─────────────────────────────────────────────────
       if (cbData === 'admin_rate_edit') {
