@@ -144,6 +144,18 @@ function buildWelcomePayload(settings: any): { text: string; entities?: any[] } 
   return { text: settings?.text || '👋 <b>Добро пожаловать!</b>' };
 }
 
+// ─── Welcome keyboard builder ──────────────────────────────────────
+function buildWelcomeKeyboard(miniappUrl: string, supportUrl?: string, channelUrl?: string) {
+  const buttons: any[][] = [
+    [
+      { text: '💬 Поддержка', url: supportUrl || 'https://t.me/support' },
+      { text: '📢 Канал', url: channelUrl || 'https://t.me/channel' },
+    ],
+    [{ text: 'Открыть обменник USDT', web_app: { url: miniappUrl } }],
+  ];
+  return { inline_keyboard: buttons };
+}
+
 // ─── Admin check ─────────────────────────────────────────────────
 function isAdmin(userId: number, ownerId: number | null): boolean {
   return Boolean(ownerId && userId === ownerId);
@@ -673,7 +685,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (cbData === 'welcome_preview') {
         const settings = await getBotSettings(supabase);
         const payload = buildWelcomePayload(settings);
-        const keyboard = { inline_keyboard: [[{ text: 'Открыть обменник USDT', web_app: { url: miniappUrl } }]] };
+        
+        const supportUrl = settings?.support_url;
+        const channelUrl = settings?.channel_url;
+        const keyboard = buildWelcomeKeyboard(miniappUrl, supportUrl, channelUrl);
 
         await sendTelegramMessage(chatId, `👀 <b>Предпросмотр приветствия:</b>`);
         await sendTelegramMessage(chatId, payload.text, keyboard, { photo: settings?.photo, entities: payload.entities });
@@ -1065,7 +1080,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const settings = await getBotSettings(supabase);
         const welcomePayload = buildWelcomePayload(settings);
-        const keyboard = { inline_keyboard: [[{ text: 'Открыть обменник USDT', web_app: { url: miniappUrl } }]] };
+        
+        const supportUrl = settings?.support_url;
+        const channelUrl = settings?.channel_url;
+        const keyboard = buildWelcomeKeyboard(miniappUrl, supportUrl, channelUrl);
 
         await sendTelegramMessage(chatId, welcomePayload.text, keyboard, {
           photo: settings?.photo,
