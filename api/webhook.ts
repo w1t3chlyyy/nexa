@@ -174,8 +174,8 @@ function buildWelcomePayload(settings: any): { text: string; entities?: any[] } 
 function buildWelcomeKeyboard(miniappUrl: string, supportUrl?: string, channelUrl?: string) {
   const buttons: any[][] = [
     [
-      { text: '💬 Поддержка', url: supportUrl || 'https://t.me/support' },
-      { text: '📢 Канал', url: channelUrl || 'https://t.me/channel' },
+      { text: 'Поддержка', url: supportUrl || 'https://t.me/CryptoNexaHelp' },
+      { text: 'Канал', url: channelUrl || 'https://t.me/NexaCryptoExchange' },
     ],
     [{ text: 'Открыть обменник USDT', web_app: { url: miniappUrl } }],
   ];
