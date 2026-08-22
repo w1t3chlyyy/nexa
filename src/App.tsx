@@ -571,10 +571,11 @@ export default function App() {
   <HomeView tier={currentTierInfo} cryptoRates={cryptoRates} onNavigateToSell={() => setActiveTab('sell')} />
 )}
 
-          {activeTab === 'sell' && (
+                   {activeTab === 'sell' && (
             <SellChequeView
               user={user}
               tier={currentTierInfo}
+              cryptoRates={cryptoRates}
               requisites={requisites}
               onOpenAddRequisite={() => setIsAddRequisiteOpen(true)}
               onTransactionSuccess={handleTransactionSuccess}
@@ -584,7 +585,11 @@ export default function App() {
           )}
 
           {activeTab === 'market' && (
-            <MarketView tier={currentTierInfo} onQuickSell={() => setActiveTab('sell')} />
+            <MarketView 
+              tier={currentTierInfo} 
+              cryptoRates={cryptoRates}
+              onQuickSell={() => setActiveTab('sell')} 
+            />
           )}
 
           {activeTab === 'tasks' && (
