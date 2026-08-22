@@ -6,16 +6,21 @@ import { sound } from '../utils/sound';
 
 interface MarketViewProps {
   tier: TierInfo;
+  cryptoRates: Record<string, number>;
   onQuickSell: (symbol: CryptoSymbol) => void;
 }
 
-export const MarketView: React.FC<MarketViewProps> = ({ tier, onQuickSell }) => {
+export const MarketView: React.FC<MarketViewProps> = ({ tier, cryptoRates, onQuickSell }) => {
   const [calcAmount, setCalcAmount] = useState<string>('100');
 
   const currentCrypto = SUPPORTED_CRYPTOS[0]; // USDT
+  
+  // ← ЖИВОЙ КУРС ИЗ SUPABASE
+  const liveRate = cryptoRates[currentCrypto.symbol] ?? currentCrypto.priceRub;
+  
   const parsedAmount = parseFloat(calcAmount) || 0;
   const tierMultiplier = 1 + tier.rateBonus / 100;
-  const effectiveRubRate = currentCrypto.priceRub * tierMultiplier;
+  const effectiveRubRate = liveRate * tierMultiplier;
   const calculatedRub = (parsedAmount * effectiveRubRate).toFixed(2);
 
   const presetAmounts = [25, 50, 100, 300, 500, 1000];
